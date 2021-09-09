@@ -2,7 +2,6 @@ import djitellopy
 from threading import Event, Thread, Timer, Lock
 from time import sleep, time
 from pointcloud import PointCloud
-from face_recognition import Tracker
 from utils import current_and_next
 import numpy as np
 from math import atan2, pi, cos, sin, radians, sqrt
@@ -10,6 +9,9 @@ import cv2
 import color_tracker
 
 FRAME_SIZE = (640, 480)
+X = np.array([1, 0, 0])
+Y = np.array([0, 1, 0])
+Z = np.array([0, 0, 1])
 
 
 class TelloCV(object):
@@ -21,8 +23,8 @@ class TelloCV(object):
         self.angle = 0
 
         self.slam_to_real_world_scale = 1
-        self.slam_pose = None
-        self.pointcloud = None
+        self.slam_pose: np.array = np.array([])
+        self.pointcloud: PointCloud
 
         self.ack = Event()  # signify acknowledgement from user after drone sends an authorization request
 
@@ -40,7 +42,7 @@ class TelloCV(object):
 
     def init_drone(self):
         def calibrate_map_scale():
-            self.drone.move('Z', 50)
+            self.move(Z, 50)
             # *OR* height_drone = 50
             height_drone = self.drone.get_height()  # Get current height in cm
             # get coordinates from slam
@@ -53,9 +55,9 @@ class TelloCV(object):
         #self.drone.streamon()
         while not self.app.request_from_cpp("isSlamInitialized"):
             self.scan_env()
-            print("waiting for Slam to initialize")
+            print("[TELLO][INIT_DRONE] Waiting for ORB_SLAM2 to initialize...")
             pass
-        print("Slam initialized")
+        print("[TELLO][INIT_DRONE] ORB_SLAM2 initialized.")
         # calibrate_map_scale()
 
         self.stay_in_air = Timer(15, self.move,
@@ -81,31 +83,44 @@ class TelloCV(object):
         """
         self.drone.end()
 
-    def authorization_request(self):
+    def authorization_request(self, direction, cm):
         # clear previous/accidental authorization bit
         self.ack.clear()
         while True:
-            print("[TELLO] [authorization request] Press s to move")
+            print(f'[TELLO][authorization request] {direction}, {cm} cm. Press s to move')
             ack_accepted = self.ack.wait(timeout=30)  # wait for half a minute
             if ack_accepted:
                 break
 
     def scan_env(self):
         degree_per_iteration = 10
-        print("[Drone][Scan] scanning environment for ORB_SLAM2...")
+        print("[TELLO][SCAN_ENV] scanning environment for ORB_SLAM2...")
         with self.move_lock:
+
+            # cancel previous schedule
+            self.stay_in_air.cancel()
+
             for i in range(0, 360, degree_per_iteration):
                 """
                 self.drone.rotate_clockwise(degree_per_iteration)
-                self.angle = (self.angle + degree_per_iteration) % 360  # IM CONCERNED ABOUT THIS
+                self.angle = (self.angle + degree_per_iteration) % 360  # ******IM CONCERNED ABOUT THIS******
                 # wait for drone to rotate and orbslam to initialize
                 """
                 sleep(1)
 
-        print("[Drone][Scan] Done.")
+            # schedule next
+            if self.need_stay_in_air:
+                TelloCV.auto_movement_bool = not TelloCV.auto_movement_bool
+                self.stay_in_air = Timer(15, self.move, args=['down' if TelloCV.auto_movement_bool else 'up', 10])
+                self.start_time_stay_in_air = time()
+                self.stay_in_air.start()
 
-    def move(self, axis, cm):
-        print(f'[TELLO] move method was called, axis: {axis}, cm: {cm}')
+        print("[TELLO][SCAN_ENV] Done.")
+
+    def move(self, vector: np.array, cm):
+        vector = np.array(vector) * cm  # it switches vector-entries-sign if cm < 0
+        cm = abs(cm)
+        print(f'[TELLO][MOVE] Method was called with; vector: {vector}, cm: {cm}')
         with self.move_lock:  # lock prevents scheduled call and actual call, to enter 'move' simultaneously
 
             print("time passed since last schedule: ", time() - self.start_time_stay_in_air)
@@ -113,34 +128,9 @@ class TelloCV(object):
             self.stay_in_air.cancel()
 
             # change drone angle, then, check if safe to continue in that direction
-            x1, y1 = cos(radians(self.angle)), sin(radians(self.angle))
-            x2, y2 = 0, 0
-            direction = None
-            if axis == 'X':
-                if cm < 0:
-                    direction = 'left'
-                    x2, y2 = (-1, 0)
-                else:
-                    direction = 'right'
-                    x2, y2 = (1, 0)
-
-            elif axis == 'Y':
-                if cm < 0:
-                    direction = 'back'
-                    x2, y2 = (0, -1)
-                else:
-                    direction = 'forward'
-                    x2, y2 = (0, 1)
-
-            elif axis == 'Z':
-                if cm < 0:
-                    direction = 'down'
-                else:
-                    direction = 'up'
-                x2, y2 = x1, y1
-
-            dot = x1 * x2 + y1 * y2  # dot product
-            det = x1 * y2 - y1 * x2  # determinant
+            curr_vector = np.array([cos(radians(self.angle)), sin(radians(self.angle))])
+            dot = np.dot(curr_vector, vector)  # dot product
+            det = np.linalg.det([curr_vector, vector])  # determinant
             angle = int(atan2(det, dot) * (180 / pi))  # atan2(y, x) or atan2(sin, cos)
             self.angle = self.angle + angle
             """
@@ -153,20 +143,27 @@ class TelloCV(object):
             # wait for the drone to rotate
             sleep(2)
 
+            X_movement = np.dot(vector, X)
+            X_norm = np.linalg.norm(X_movement)
+            Y_movement = np.dot(vector, Y)
+            Y_norm = np.linalg.norm(Y_movement)
+            Z_movement = np.dot(vector, Z)
+            Z_norm = np.linalg.norm(Z_movement)
+
+            X_movement = 'right' if X_norm > 0 else 'left'
+            Y_movement = 'forward' if Y_norm > 0 else 'back'
+            Z_movement = 'up' if Z_norm > 0 else 'down'
+
             isWall = self.app.request_from_cpp("isWall")
             print("isWall= ", isWall)
-            """
             if not isWall:
-                self.authorization_request()
-                if direction == 'right' or direction == 'left' or direction == 'back':
-                    self.drone.move_forward(cm)
-                    pass
-                else:
-                    self.drone.move(direction, cm)
-                    pass
-                # wait for the drone to move
-                sleep(1)
-            """
+                for coordinate in ["X_", "Y_", "Z_"]:
+                    # https://stackoverflow.com/questions/9437726/how-to-get-the-value-of-a-variable-given-its-name-in-a-string
+                    if locals()[coordinate+"norm"] != 0:
+                        self.authorization_request(locals()[coordinate+"movement"], cm)
+                        # self.drone.move(locals()[coordinate+"movement"], cm)
+                        # wait for the drone to move
+                        sleep(1)
 
             # update pose variables
             self.slam_pose = np.array(self.app.request_from_cpp("Pose")) * self.slam_to_real_world_scale
@@ -228,28 +225,13 @@ class TelloCV(object):
         print("[TELLO] moving... ")
 
     def wander_around(self):
+        # point = 0.3, 0.3
         cm = 20
-        #point = self.slam_pose
-        point = 0.3, 0.3
-        x, y = point[0] * 1000, point[1] * 1000
-        local_map = {
-                                        ('Y', cm): (x, y + cm),
-            ('X', -cm): (x - cm, y),    ('X', 0): (x, y),           ('X', cm): (x + cm, y),
-                                        ('Y', -cm): (x, y - cm)
-        }
-        cost_map = self.pointcloud.eval_cost_map(local_map)
-        print("[TELLO][WANDER AROUND] cost map says: ", max(cost_map, key=cost_map.get))
-        # https://stackoverflow.com/questions/268272/getting-key-with-maximum-value-in-dictionary
-        self.move(*max(cost_map, key=cost_map.get))
+        point = self.slam_pose * 1000
+        self.move(self.pointcloud.eval_movement_vector(point), cm)
         self.scan_env()
 
     """
-    Based on the tutorial:
-    https://www.pyimagesearch.com/2015/09/14/ball-tracking-with-opencv/
-    +Y                 (0,240)
-    Y  (-320, 0)        (0,0)               (320,0)
-    -Y                 (0,-240)
-    -X                    X                    +X
     the hue range in
     opencv is 180, normally it is 360
     green_lower = (50, 50, 50)
@@ -284,35 +266,30 @@ class TelloCV(object):
                 self.wander_around()
 
         res = get_tracked_object()
-        """
-        while res is None:
-            self.wander_around()  # the infinite loop at get_tracked_object ruined this
-            res = get_tracked_object()
-        """
-        print(f"[TELLO][TRACKER] OBJECT FOUND; center:{res['center']}, area:{res['area']}")
-        print("FRAME CENTER: ", (FRAME_SIZE[0] / 2, FRAME_SIZE[1] / 2))
+        print(f"[TELLO][TRACKER] OBJECT FOUND; center:{res['center']}, area:{res['area']}."
+              f" Frame-center is: {(FRAME_SIZE[0] / 2, FRAME_SIZE[1] / 2)}")
         # repose the drone to face tracked ball
         xoffset = res['center'][0] - FRAME_SIZE[
             0] / 2  # if ball_center_x > FRAME_SIZE_x/2, you should move to the right
         yoffset = res['center'][1] - FRAME_SIZE[1] / 2
-        self.move('X', xoffset)
-        self.move('Z', yoffset)  # y axis in frame = z axis in real world
+        self.move(X, xoffset)
+        self.move(Z, yoffset)  # y axis in frame = z axis in real world
 
         print("determine in which direction to approach ball")
         # determine in which direction to approach ball
-        self.move('Y', 20)
+        self.move(Y, 20)
         res_forward = get_tracked_object()
-        self.move('Y', -40)
+        self.move(Y, -40)
         res_back = get_tracked_object()
-        self.move('Y', 20)
+        self.move(Y, 20)
         cm = 10 if res_forward['area'] >= res_back['area'] else -10
 
         print("move in that direction until ball is close enough")
         # move in that direction until ball is close enough
-        self.move('Y', cm)
+        self.move(Y, cm)
         res = get_tracked_object()
         while res['area'] < 700:
-            self.move('Y', cm)
+            self.move(Y, cm)
             res = get_tracked_object()
 
         tracker.stop_tracking()

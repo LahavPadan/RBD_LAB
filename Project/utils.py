@@ -15,6 +15,9 @@ import ast
 # generators_factory imports
 import collections
 
+# tri_area imports
+from numpy.linalg import det
+
 PORT, HOST_IP = 8080, '127.0.0.1'
 key = 4
 
@@ -62,7 +65,6 @@ class CppCommunication(object):
             self.command_sender.join()
         # no need to join key_listener
         # as listener is joined once we return False from on_press
-
 
     def __listen_to_output(self):
         """
@@ -170,18 +172,21 @@ def generators_factory(iterable, size=None):
         new_deque = collections.deque()
         new_deque.extend(already_gone)
         deques.append(new_deque)
+
         def gen(mydeque):
             while True:
                 if not mydeque:  # when the local deque is empty
                     with lock:
-                        newval = next(it)       # fetch a new value and
+                        newval = next(it)  # fetch a new value and
                         already_gone.append(newval)
-                        for d in deques:        # load it to all the deques
+                        for d in deques:  # load it to all the deques
                             d.append(newval)
                 yield mydeque.popleft()
 
         return gen(new_deque)
+
     return new_generator
+
 
 ########################################################################################################################
 
@@ -277,3 +282,15 @@ def current_and_next(iterable):
     items = islice(items, None, len(iterable) - 1)
     nexts = islice(nexts, 1, None)
     return zip(items, nexts)
+
+
+########################################################################################################################
+
+def tri_area(tri: np.array):
+    tri = np.hstack((tri, np.ones((3, 1))))
+    return 0.5 * np.abs(det(tri))
+
+
+def tri_centroid(tri: np.array) -> np.array:
+    (x1, y1), (x2, y2), (x3, y3) = tri
+    return np.array([(x1 + x2 + x3) / 3, (y1 + y2 + y3) / 3])

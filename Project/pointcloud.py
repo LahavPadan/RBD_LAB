@@ -1,26 +1,23 @@
 import shutil
+from time import sleep
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import scipy
+from scipy.spatial.tests.test_qhull import points
 from sklearn.neighbors import KDTree
+from scipy.spatial import Delaunay
 from threading import Timer, Lock
-
-show_animation = True
+from utils import tri_area, tri_centroid
 
 
 class PointCloud(object):
     def __init__(self, app):
         self._app = app
         self._kdTree = None
-        self.px, self.py = None, None
-        self._points = None
+        self._points: np.array = np.array([])
         self._lock_points = Lock()
         self._lock_kdTree = Lock()
-        # start and goal position
-        self.start = (10.0, 10.0)  # [cm]
-        self.goal = (50.0, 50.0)  # [cm]
-        self.grid_size = 2.0  # [cm]
-        self.robot_radius = 1.0  # [cm]
         self.update_map()
 
     def update_map(self):
@@ -29,13 +26,13 @@ class PointCloud(object):
             df = pd.read_csv('../data/pointData.csv', header=None)
             df.columns = ['x', 'y', 'z']
             # https://stackoverflow.com/questions/17241004/how-do-i-convert-a-pandas-series-or-index-to-a-numpy-array
-            self.px, self.py = df['x'].to_numpy(), df['y'].to_numpy()
-            self.px *= 1000
-            self.py *= 1000
-            self.px = np.round_(self.px)
-            self.py = np.round_(self.py)
+            px, py = df['x'].to_numpy(), df['y'].to_numpy()
+            px *= 1000
+            py *= 1000
+            px = np.round_(px)
+            py = np.round_(py)
             with self._lock_points:
-                self._points = np.column_stack((self.px, self.py)).tolist()
+                self._points = np.column_stack((px, py))
 
         """
         while self._app.request_from_cpp("isWall"):  # NOT CLEAR ENOUGH
@@ -44,7 +41,7 @@ class PointCloud(object):
 
         print("[POINTCLOUD] updating pointcloud...")
         """
-        self._app.request_from_cpp("SaveMap")
+        self._app.request_from_cpp("SAVEMAP")
         self._app.request_from_cpp("isMapSaved")
         """
         # shutil.move("/tmp/pointData.csv", "../data/pointData.csv")
@@ -55,38 +52,29 @@ class PointCloud(object):
         Timer(30, self.update_map)
 
     def plot(self):
-        plt.plot(self.px, self.py, ".k")
-        plt.plot(*self.start, "og")
-        plt.plot(*self.goal, "xb")
+        with self._lock_points:
+            plt.plot(self._points[:, 0], self._points[:, 1], ".k")
         plt.grid(True)
         plt.axis("equal")
         plt.show()
 
-    """
-    a_star = AStarPlanner(ox, oy, grid_size, robot_radius)
-    rx, ry = a_star.planning(sx, sy, gx, gy)
-    if show_animation:  # pragma: no cover
-        plt.plot(rx, ry, "-r")
-        plt.pause(0.001)
-        plt.show()
-
-    return list(zip(rx, ry))[::-1]
-    """
-
-    # https://stackoverflow.com/questions/48126771/nearest-neighbour-search-kdtree
-    def eval_cost_map(self, local_map) -> dict:
-        with self._lock_points:
-            points_numpy = np.array(self._points)
+    def eval_movement_vector(self, point: np.array) -> np.array:
+        print("[POINTCLOUD][eval_movement_vector] evaluating movement from ", point)
         # PROBABLY A SCALE ISSUE HERE
 
-        cost_map = {}
+        # https://stackoverflow.com/questions/48126771/nearest-neighbour-search-kdtree
         # NN = nearest neighbors
-        print("READY FOR query_radius")
-        #nn_indices = self._kdTree.query_radius([query_point], r=30)  # NNs within distance of 30 of point
-        #all_nns = [np.array(self.points)[idx] for idx in nn_indices]
+        with self._lock_kdTree:
+            nn_indices = self._kdTree.query_radius([point], r=60)  # NNs within distance of 60 of point
+        with self._lock_points:
+            all_nns = [self._points[idx] for idx in nn_indices]
+        all_nns = np.array(*all_nns)
+        """
+        cost_map = {}
         with self._lock_kdTree:
             all_nn_indices = self._kdTree.query_radius([*local_map.values()], r=30)  # NNs within distance of 30 of point
         all_nns = [[points_numpy[idx] for idx in nn_indices] for nn_indices in all_nn_indices]
+
         print("all nns: ", all_nns)
         for nns in all_nns:
             print(nns)
@@ -96,5 +84,33 @@ class PointCloud(object):
             print(local_map[key])
             cost_map[key] = -len(all_nns[i])
             print(cost_map[key])
+        """
+        # https://gamedev.stackexchange.com/questions/95869/find-the-largest-empty-space-inside-a-cube-populated-with-a-point-cloud
+        # https://stackoverflow.com/questions/62608710/delaunay-triangulation-simplices-scipy
+        try:
+            triangles = Delaunay(all_nns, qhull_options="QJ")
+        except scipy.spatial.qhull.QhullError:
+            while self._lock_points.acquire() and len(self._points) < 5:
+                self._lock_points.release()
+                sleep(10)
+            self._lock_points.release()
 
-        return cost_map
+            # Edge case: 'point' itself is on pointcloud, resulting in an identity point. thus k=5, not k=4
+            # do the previous query, but now, can take points in arbitrary range
+            nn_dist, nn_indices = self._kdTree.query([point], k=5)
+            with self._lock_points:
+                all_nns = [self._points[idx] for idx in nn_indices]
+            all_nns = np.array(*all_nns)
+            triangles = Delaunay(all_nns, qhull_options="QJ")
+
+        # https://stackoverflow.com/questions/18296755/python-max-function-using-key-and-lambda-expression
+        tri = max(all_nns[triangles.simplices], key=tri_area)
+        centroid = tri_centroid(tri)
+        print("centroid: ", centroid)
+        """
+        plt.triplot(all_nns[:, 0], all_nns[:, 1], triangles.simplices)
+        plt.plot(all_nns[:, 0], all_nns[:, 1], '.k')
+        plt.show()
+        self.plot()
+        """
+        return np.subtract(centroid, point)  # vector subtraction

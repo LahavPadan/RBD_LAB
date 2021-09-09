@@ -13,7 +13,7 @@ import pointcloud
 
 # INPUT_FORM: VIDEO/WEB-CAM/TELLO
 INPUT_FORM = 'WEB-CAM'
-RUN_ORB_SLAM = True
+RUN_ORB_SLAM = False
 OUTPUT_FORM = 'WINDOW'
 
 
@@ -35,7 +35,7 @@ class App(utils.CppCommunication):
         }
         self.commands_to_cpp = {
             "END": 1,
-            "SaveMap": 2
+            "SAVEMAP": 2
         }
         self.queries_from_cpp = [
             "Pose",
@@ -56,10 +56,11 @@ class App(utils.CppCommunication):
         if INPUT_FORM == 'TELLO':
             self._tello = TelloCV(self)
 
-
+        """
         # DELETE THIS
         if INPUT_FORM == 'WEB-CAM':
             self._tello = TelloCV(self)
+        """
 
     def on_press(self, keyname):
         """Override CppCommunication on_press function"""
@@ -144,12 +145,10 @@ if __name__ == "__main__":
     # utils.generate_training_faces(subject_name=getpass.getuser())
     # init_control_gui()
 
-
     if INPUT_FORM == 'VIDEO':
         input_video_path = '../data/Casino Royale Opening original.mp4'
     else:
         input_video_path = None
 
-    app = App()
+    App().run()
 
-    app.run()
