@@ -92,6 +92,10 @@ class CppCommunication(object):
                     self.request_from_stdout[query] = (retrieved, retrieval)
                     retrieved.set()
 
+                    if query == 'isWall':
+                        sys.stdout.write(nextline)
+                        sys.stdout.flush()
+
     def __send_command_to_cpp(self):
         received_end = False
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

@@ -13,7 +13,7 @@ import pointcloud
 
 # INPUT_FORM: VIDEO/WEB-CAM/TELLO
 INPUT_FORM = 'WEB-CAM'
-RUN_ORB_SLAM = False
+RUN_ORB_SLAM = True
 OUTPUT_FORM = 'WINDOW'
 
 
@@ -56,11 +56,10 @@ class App(utils.CppCommunication):
         if INPUT_FORM == 'TELLO':
             self._tello = TelloCV(self)
 
-        """
+
         # DELETE THIS
         if INPUT_FORM == 'WEB-CAM':
             self._tello = TelloCV(self)
-        """
 
     def on_press(self, keyname):
         """Override CppCommunication on_press function"""

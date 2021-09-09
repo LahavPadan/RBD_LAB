@@ -1,6 +1,6 @@
 import djitellopy
 from threading import Event, Thread, Timer, Lock
-from time import sleep
+from time import sleep, time
 from pointcloud import PointCloud
 from face_recognition import Tracker
 from utils import current_and_next
@@ -32,6 +32,7 @@ class TelloCV(object):
         """
         self.need_stay_in_air = True
         self.stay_in_air = None
+        self.start_time_stay_in_air = 0
 
         # IM CREATING TON OF THREADS AND JOINING NONE
         init_thread = Thread(target=self.init_drone)
@@ -51,12 +52,15 @@ class TelloCV(object):
         #self.drone.connect()
         #self.drone.streamon()
         while not self.app.request_from_cpp("isSlamInitialized"):
-            # self.scan_env()
+            self.scan_env()
+            print("waiting for Slam to initialize")
             pass
+        print("Slam initialized")
         # calibrate_map_scale()
 
         self.stay_in_air = Timer(15, self.move,
                                  args=['down' if TelloCV.auto_movement_bool else 'up', 10])
+        self.start_time_stay_in_air = time()
         self.stay_in_air.start()
         self.slam_pose = np.array(self.app.request_from_cpp("Pose")) * self.slam_to_real_world_scale
         self.pointcloud = PointCloud(self.app)
@@ -87,13 +91,13 @@ class TelloCV(object):
                 break
 
     def scan_env(self):
-        degree_slice = 10
+        degree_per_iteration = 10
         print("[Drone][Scan] scanning environment for ORB_SLAM2...")
         with self.move_lock:
-            for i in range(0, 360, degree_slice):
+            for i in range(0, 360, degree_per_iteration):
                 """
-                self.drone.rotate_clockwise(degree_slice)
-                self.angle = (self.angle + degree_slice) % 360  # IM CONCERNED ABOUT THIS
+                self.drone.rotate_clockwise(degree_per_iteration)
+                self.angle = (self.angle + degree_per_iteration) % 360  # IM CONCERNED ABOUT THIS
                 # wait for drone to rotate and orbslam to initialize
                 """
                 sleep(1)
@@ -104,6 +108,7 @@ class TelloCV(object):
         print(f'[TELLO] move method was called, axis: {axis}, cm: {cm}')
         with self.move_lock:  # lock prevents scheduled call and actual call, to enter 'move' simultaneously
 
+            print("time passed since last schedule: ", time() - self.start_time_stay_in_air)
             # cancel previous schedule
             self.stay_in_air.cancel()
 
@@ -148,7 +153,7 @@ class TelloCV(object):
             # wait for the drone to rotate
             sleep(2)
 
-            isWall = self.app.request_from_cpp("IsWall")
+            isWall = self.app.request_from_cpp("isWall")
             print("isWall= ", isWall)
             """
             if not isWall:
@@ -174,6 +179,7 @@ class TelloCV(object):
             if self.need_stay_in_air:
                 TelloCV.auto_movement_bool = not TelloCV.auto_movement_bool
                 self.stay_in_air = Timer(15, self.move, args=['down' if TelloCV.auto_movement_bool else 'up', 10])
+                self.start_time_stay_in_air = time()
                 self.stay_in_air.start()
 
     def print_measurement_variance(self):
@@ -269,10 +275,13 @@ class TelloCV(object):
                     width = (x_w - x)
                     height = (y_h - y)
                     area = width * height
-                    center = x + width / 2, y + height / 2  # ABOUT THIS ONE IM NOT TOO SURE
-                    return {'area': area, 'center': center}
+                    center = x + width / 2, y + height / 2  # ABOUT THIS ONE IM NOT TOO SURE - ITS THE CENTER IN FRAME
+                    # NOT NECESSARILY IN REAL WORLD
+                    if area > 300:  # filter-out false positives
+                        return {'area': area, 'center': center}
                 except IndexError:
-                    self.wander_around()
+                    pass
+                self.wander_around()
 
         res = get_tracked_object()
         """
