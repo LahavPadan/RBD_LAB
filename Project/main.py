@@ -1,6 +1,6 @@
 import getpass
 import os
-
+from threading import Event
 import cv2
 import numpy as np
 
@@ -9,7 +9,6 @@ from image_filters import init_control_gui, apply_hsv_filter, apply_edge_filter
 from face_recognition import FaceRec
 import utils
 import pointcloud
-
 
 # INPUT_FORM: VIDEO/WEB-CAM/TELLO
 INPUT_FORM = 'WEB-CAM'
@@ -41,7 +40,8 @@ class App(utils.CppCommunication):
             "listPose",
             "isWall",
             "isMapSaved",
-            "isSlamInitialized"
+            "isSlamInitialized",
+            "isTrackingLost"
         ]
         subproc_path = f"{os.getenv('HOME')}/ORB_SLAM2/Examples/Monocular/mono_tum" if RUN_ORB_SLAM else None
         super(App, self).__init__(subproc_path=subproc_path, commands_to_cpp=self.commands_to_cpp,
@@ -51,30 +51,15 @@ class App(utils.CppCommunication):
         self._cap = None
         self._input_video_path = input_video_path
         self.init_cap()
+        self.stop_frames = Event()
         self.factory = utils.generators_factory(self.__framesGenerator(), size=10)
 
         if INPUT_FORM == 'TELLO':
             self._tello = TelloCV(self)
 
-        # DELETE THIS
+        # ***DELETE THIS***
         if INPUT_FORM == 'WEB-CAM':
             self._tello = TelloCV(self)
-
-    def on_press(self, keyname):
-        """Override CppCommunication on_press function"""
-        if self.keydown:
-            return
-        try:
-            self.keydown = True
-            keyname = str(keyname).strip('\'')
-            print('+' + keyname)
-            if keyname == 'Key.esc':
-                self.end()
-                return False
-            elif keyname in self.controls:
-                self.controls[keyname]()
-        except AttributeError:
-            print('special key {0} pressed'.format(keyname))
 
     def init_cap(self):
         if INPUT_FORM == 'VIDEO':
@@ -90,14 +75,13 @@ class App(utils.CppCommunication):
         if INPUT_FORM == 'TELLO':
             self._cap = self._tello.drone.get_video_capture()
 
-    # https://stackoverflow.com/questions/231767/what-does-the-yield-keyword-do
     def __framesGenerator(self):
         is_success, frame = self._cap.read()
         while frame is not None:
-            # orb_slam requires size of WIDTH 640, HEIGHT 480
+            # ORB_SLAM2 requires size of WIDTH 640, HEIGHT 480
             frame = cv2.resize(frame, (640, 480))
             yield frame
-            if self.running:
+            if not self.running:
                 is_success, frame = self._cap.read()
             else:
                 break
@@ -118,6 +102,7 @@ class App(utils.CppCommunication):
                 if RUN_ORB_SLAM:
                     # https://stackoverflow.com/questions/21689365/python-3-typeerror-must-be-str-not-bytes-with-sys-stdout-write
                     try:
+                        # print("Passing frames to ORB_SLAM2...")
                         self.subproc.stdin.buffer.write(output_frames[0].tobytes())
                     except BrokenPipeError:
                         pass
@@ -129,16 +114,33 @@ class App(utils.CppCommunication):
                         break
 
     def end(self):
-        super(App, self).end()
-        print("Im in App's end")
+        self.running = False
+
+        if self.subproc_path is not None:
+            self.request_from_cpp("END")
+            return_code = self.subproc.wait()
+            print("C++ script finished with exit code: ", return_code)
+
+        print("[APP][END] Ending App...")
         cv2.destroyAllWindows()
         if INPUT_FORM == 'TELLO':
             self._tello.end()
+
+        # ***DELETE THIS***
+        if INPUT_FORM == 'WEB-CAM':
+            self._tello.end()
+
         elif INPUT_FORM == 'WEB-CAM' or INPUT_FORM == 'VIDEO':
             # self._cap.release()
             print("IM here")
+
+        #self.stop_frames.set()
+        self.can_stopListening.set()
         self.output_listener.join()
         self.command_sender.join()
+        # no need to join key_listener
+        # as listener is joined once we return False from on_press
+        # see on_press for source link
 
 
 if __name__ == "__main__":
@@ -151,4 +153,3 @@ if __name__ == "__main__":
         input_video_path = None
 
     App().run()
-

@@ -20,7 +20,7 @@ class TelloCV(object):
     def __init__(self, app):
         self.app = app
         self.drone = djitellopy.Tello()
-        self.angle = 0
+        self.angle = 90  # drone facing forward = 90 degrees on the unit circle, vector (0, 1, 0)
 
         self.slam_to_real_world_scale = 1
         self.slam_pose: np.array = np.array([])
@@ -55,8 +55,8 @@ class TelloCV(object):
         # self.drone.connect()
         # self.drone.streamon()
         while not self.app.request_from_cpp("isSlamInitialized"):
-            self.scan_env()
             print("[TELLO][INIT_DRONE] Waiting for ORB_SLAM2 to initialize...")
+            self.scan_env()
             if not self.app.running:
                 return
 
@@ -77,13 +77,14 @@ class TelloCV(object):
         self.move_to_color_thread.start()
 
     def end(self):
+        print("[TELLO][END] Ending TelloCV...")
         # release any move authorization request
         self.ack.set()  # the bit stays turned on
 
         self.need_stay_in_air = False
         # wait for the previous stay_in_air schedule to finish
         sleep(15)
-
+        print("About to join move_to_color")
         self.move_to_color_thread.join()
 
         # self.drone.land()
@@ -106,15 +107,18 @@ class TelloCV(object):
         def wrapper(self, *args, **kwargs):
             with self.move_lock:  # lock also prevents scheduled call and actual call, to enter 'move' simultaneously
                 print("time passed since last schedule: ", time() - self.start_time_stay_in_air)
-                # cancel previous schedule
-                self.stay_in_air.cancel()
+                try:
+                    # cancel previous schedule
+                    self.stay_in_air.cancel()
+                except AttributeError:
+                    pass
                 # call wrapped function
                 function(self, *args, **kwargs)
 
                 # schedule next
                 if self.need_stay_in_air:
                     TelloCV.auto_movement_bool = not TelloCV.auto_movement_bool
-                    self.stay_in_air = Timer(15, self.move, args=['down' if TelloCV.auto_movement_bool else 'up', 10])
+                    self.stay_in_air = Timer(15, self.move, args=[Z, 10 if TelloCV.auto_movement_bool else -10])
                     self.start_time_stay_in_air = time()
                     self.stay_in_air.start()
 
@@ -140,13 +144,13 @@ class TelloCV(object):
     @handle_stay_in_air
     def move(self, vector: np.array, cm, *args, **kwargs):
 
-        vector = vector * cm  # it switches vector-entries-sign if cm < 0
+        vector = vector * cm  # it also switches vector-entries-sign if cm < 0
         cm = abs(cm)
         print(f'[TELLO][MOVE] Method was called with; vector: {vector}, cm: {cm}')
         # change drone angle, then, check if safe to continue in that direction
         curr_vector = np.array([cos(radians(self.angle)), sin(radians(self.angle))])
-        dot = np.dot(curr_vector, vector)  # dot product
-        det = np.linalg.det([curr_vector, vector])  # determinant
+        dot = np.dot(curr_vector, vector[:-1])  # dot product
+        det = np.linalg.det([curr_vector, vector[:-1]])  # determinant
         angle = int(atan2(det, dot) * (180 / pi))  # atan2(y, x) or atan2(sin, cos)
         self.angle = self.angle + angle
         """
@@ -159,16 +163,16 @@ class TelloCV(object):
         # wait for the drone to rotate
         sleep(2)
 
-        X_movement = np.dot(vector, X)
+        X_movement = np.dot(vector, X) * X
         X_norm = np.linalg.norm(X_movement)
-        Y_movement = np.dot(vector, Y)
+        Y_movement = np.dot(vector, Y) * Y
         Y_norm = np.linalg.norm(Y_movement)
-        Z_movement = np.dot(vector, Z)
+        Z_movement = np.dot(vector, Z) * Z
         Z_norm = np.linalg.norm(Z_movement)
 
-        X_movement = 'right' if X_norm > 0 else 'left'
-        Y_movement = 'forward' if Y_norm > 0 else 'back'
-        Z_movement = 'up' if Z_norm > 0 else 'down'
+        X_movement = 'right' if X_movement[0] > 0 else 'left'
+        Y_movement = 'forward' if Y_movement[1] > 0 else 'back'
+        Z_movement = 'up' if Z_movement[2] > 0 else 'down'
 
         isWall = self.app.request_from_cpp("isWall")
         print("isWall= ", isWall)
@@ -176,10 +180,10 @@ class TelloCV(object):
             for axis in ["X_", "Y_", "Z_"]:
                 # https://stackoverflow.com/questions/9437726/how-to-get-the-value-of-a-variable-given-its-name-in-a-string
                 if locals()[axis + "norm"] != 0:
-                    self.authorization_request(locals()[axis + "movement"], cm)
+                    # self.authorization_request(locals()[axis + "movement"], locals()[axis + "norm"])
                     if not self.app.running:
                         break
-                    # self.drone.move(locals()[axis+"movement"], cm)
+                    # self.drone.move(locals()[axis+"movement"], locals()[axis + "norm"])
                     # wait for the drone to move
                     sleep(1)
 
@@ -237,6 +241,7 @@ class TelloCV(object):
 
     def wander_around(self):
         # point = 0.3, 0.3
+        print("[TELLO][WANDER_AROUND] searching where to go...")
         cm = 20
         point = self.slam_pose * 1000
         self.move(self.pointcloud.eval_movement_vector(point), cm)
@@ -275,6 +280,7 @@ class TelloCV(object):
                     pass
 
                 if not self.app.running:
+                    print("Returning that dummy object found dict")
                     return {'area': 0, 'center': (FRAME_SIZE[0] / 2, FRAME_SIZE[1] / 2)}
 
                 self.wander_around()
@@ -313,8 +319,15 @@ class TelloCV(object):
     def tracker_callback(self, t: color_tracker.ColorTracker):
         frame = t.debug_frame
         # Show the direction vector output in the cv2 window
-        cv2.arrowedLine(frame, (FRAME_SIZE[0] / 2, FRAME_SIZE[1] / 2),
-                        (FRAME_SIZE[0] / 2 + cos(radians(self.angle)), FRAME_SIZE[1] / 2 - sin(radians(self.angle))),
+        cv2.arrowedLine(frame, (int(FRAME_SIZE[0] / 2), int(FRAME_SIZE[1] / 2)),
+                        (int(FRAME_SIZE[0] / 2 + 100 * cos(radians(self.angle))), int(FRAME_SIZE[1] / 2 - 100 * sin(radians(self.angle)))),
                         (0, 0, 255), 5)
+        cv2.putText(frame, "BACKWARD:", (int(FRAME_SIZE[0] / 2), FRAME_SIZE[1]-40), cv2.FONT_HERSHEY_SIMPLEX, 1, 255, thickness=2)
+        cv2.putText(frame, "FORWARD:", (int(FRAME_SIZE[0] / 2), 40), cv2.FONT_HERSHEY_SIMPLEX, 1, 255,
+                    thickness=2)
+        cv2.putText(frame, "RIGHT:", (FRAME_SIZE[0] - 100, int(FRAME_SIZE[1] / 2)), cv2.FONT_HERSHEY_SIMPLEX, 1, 255,
+                    thickness=2)
+        cv2.putText(frame, "LEFT:", (0, int(FRAME_SIZE[1] / 2)), cv2.FONT_HERSHEY_SIMPLEX, 1, 255,
+                    thickness=2)
         cv2.imshow("debug", frame)
         cv2.waitKey(1)

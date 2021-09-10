@@ -35,7 +35,7 @@ class PointCloud(object):
                 self._points = np.column_stack((px, py))
 
         """
-        while self._app.request_from_cpp("isWall"):  # NOT CLEAR ENOUGH
+        while self._app.request_from_cpp("isTrackingLost"):  # NOT CLEAR ENOUGH
             pass
         """
 
@@ -61,6 +61,8 @@ class PointCloud(object):
 
     def eval_movement_vector(self, point: np.array) -> np.array:
         print("[POINTCLOUD][eval_movement_vector] evaluating movement from ", point)
+        point = point[:-1]  # all but last element
+        print("point of dimension drop: ", point)
         # PROBABLY A SCALE ISSUE HERE
 
         # https://stackoverflow.com/questions/48126771/nearest-neighbour-search-kdtree
@@ -116,6 +118,9 @@ class PointCloud(object):
         plt.show()
         self.plot()
         """
+        print(f'before movement_vector: centroid: {centroid}, point: {point}')
         movement_vector = np.subtract(centroid, point)  # vector subtraction
+        print("after vector subtraction: ", movement_vector)
         movement_vector = np.append(movement_vector, 0)  # make it a 3D vector by adding dummy z coordinate
+        movement_vector /= np.linalg.norm(movement_vector)  # normalize vector
         return movement_vector

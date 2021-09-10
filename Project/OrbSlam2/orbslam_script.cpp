@@ -33,13 +33,9 @@
 #define BUFFER_SIZE 5
 
 
-
-
-
-void saveMap(ORB_SLAM2::System& SLAM);
+void saveMap(ORB_SLAM2::System* SLAM);
 void init_vars();
-void pose_data_generator();
-bool continue_processing();
+//void pose_data_generator();
 
 
 
@@ -53,7 +49,7 @@ typedef struct threads{
 // start numbering at 1 instead of 0
 typedef enum {
 	END = 1,
-	SEND_POSE_DATA
+	SAVEMAP
 
 } protocol_messages_t;
 
@@ -91,6 +87,7 @@ cv::Ptr<cv::Mat> buffer[BUFFER_SIZE];
 std::string fstrPointData;
 std::atomic<bool> continue_slam(true);
 threads_t threads;
+ORB_SLAM2::System* pSLAM;
 
 double consume_time = 1;
 double produce_time = 1;
@@ -104,16 +101,14 @@ void socket_listener()
 	objectData *pointer = &data;
 	pointer->value = 0;
     serversock::createConnection();
-    while (continue_processing()) {
+    while (continue_slam) {
         serversock::readValues(pointer);
         if (pointer->value != 0)
         {
         	protocol_messages_t val = static_cast<protocol_messages_t>(pointer->value);
         	switch (val){
         		case END: continue_slam = false; sem_post(&empty); break;
-    			case SEND_POSE_DATA: if (counter==0){
-    				threads.pose_producer = std::unique_ptr<std::thread>(new std::thread(pose_data_generator)); threads.pose_producer->detach();
-    				counter++; break;}
+    			case SAVEMAP: saveMap(pSLAM); break;
     			default: std::cout << "Unknown message recived" << std::endl;
         	}
         }
@@ -122,19 +117,28 @@ void socket_listener()
 }
 
 
+/*
+case SEND_POSE_DATA: if (counter==0){
+    				threads.pose_producer = std::unique_ptr<std::thread>(new std::thread(pose_data_generator)); threads.pose_producer->detach();
+    				counter++; break;}
+*/
+/*
 void pose_data_generator()
 {
-	std::list<ORB_SLAM2::KeyFrame*> mlNewKeyFrames;
-	while(continue_processing())
+	std::cout << "In pose_data_generator" << std::endl;
+	while(continue_slam)
 	{
-		std::cout << "Im here at  pose_data_generator" << std::endl;
-		//auto mpCurrentKeyframe = mlNewKeyFrames.front();
-		//auto something = mpCurrentKeyframe->GetPoseInverse();
-		//std::cout << "I really don't know what the pose is: " << something[0] << std::endl;
-		//cv::imshow("something", something);
+		ORB_SLAM2::Tracking* tracker = pSLAM->GetTracker();
+		std::cout << "Referenced tracker" << std::endl;
+		//get last frame
+    	
+		ORB_SLAM2::KeyFrame* pkeyframe = tracker->tracked_frames.front().reference_keyframe;
+    	std::cout << "got current frame" << std::endl;
+    	cv::Mat cam_center= pkeyframe->GetCameraCenter();
+        std::cout << "Last Pose:" << cam_center << std::endl;
 	}
-	// mpCurrentKeyframe->getInversePose()
 }
+*/
 
 
 /* https://github.com/codophobia/producer-consumer-problem-solution-in-c/blob/master/producer-consumer.c */
@@ -158,12 +162,14 @@ void frames_generator()
 	struct frame fr = {};
 	cv::Ptr<cv::Mat> smartPtr;
 	int counter = 0;
-	while(continue_processing())
+	while(continue_slam)
 	{
+		
+
 		sem_wait(&empty);
 		pthread_mutex_lock(&mutex1);
-		std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
 
+		std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
 		/* PRODUCE */
 		
 		// Reads in the raw data
@@ -173,26 +179,31 @@ void frames_generator()
 
 			// Rebuild raw data to cv::Mat
 			smartPtr = new cv::Mat(HEIGHT, WIDTH, CV_8UC3, *fr.data);
-		}while(smartPtr->empty());
-
-		// before passing into slam system
-		cv::cvtColor(*smartPtr, *smartPtr, CV_BGR2RGB);
-
-		buffer[in] = smartPtr;
-		in = (in + 1) % BUFFER_SIZE;
-
-		std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
-		pthread_mutex_lock(&mutex2);
-        produce_time = std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count();
-        pthread_mutex_unlock(&mutex2);
-        std::cout << "counter is "<< counter << std::endl;
-		pthread_mutex_unlock(&mutex1);
-		sem_post(&full);
-		counter++;
-		//std::cout << "counter is " << counter << std::endl; 
-		if (counter > 50)
+		}while(smartPtr->empty() && continue_slam);
+		if (continue_slam)
 		{
-			sleep(consume_time * 0.95);
+			// before passing into slam system
+			cv::cvtColor(*smartPtr, *smartPtr, CV_BGR2RGB);
+
+			buffer[in] = smartPtr;
+			in = (in + 1) % BUFFER_SIZE;
+
+			std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
+			pthread_mutex_lock(&mutex2);
+	        produce_time= std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count();
+	        pthread_mutex_unlock(&mutex2);
+			pthread_mutex_unlock(&mutex1);
+			sem_post(&full);
+			counter++;
+			//std::cout << "counter is " << counter << std::endl; 
+			if (counter > 50)
+			{
+				sleep(consume_time * 0.95);
+			}
+		}
+		else{
+            pthread_mutex_unlock(&mutex1);
+			sem_post(&full);
 		}
 	}
 }
@@ -209,8 +220,8 @@ int main()
 	std::string fstrPointData = home_env_p + "/PointData.csv";
 	// Create SLAM system. It initializes all system threads and gets ready to process frames.
 	ORB_SLAM2::System SLAM(path_to_vocabulary, path_to_settings, ORB_SLAM2::System::MONOCULAR,true);
-
-    
+    ORB_SLAM2::Tracking* ptracker = SLAM.GetTracker();
+    pSLAM = &SLAM;
     std::cout << std::endl << "-------" << std::endl;
     std::cout << "Start processing sequence ..." << std::endl;
 
@@ -222,7 +233,7 @@ int main()
 	
 
 	// Main loop
-	while (continue_processing())
+	while (continue_slam)
 	{
 		#ifdef COMPILEDWITHC11
         std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
@@ -235,34 +246,62 @@ int main()
 		*/
         
 
-		/*http://20sep1995.blogspot.com/2019/02/how-to-run-orb-slam-with-your-own-data.html*/
-		time_stamp = (0.2) * (counter + 1);
-
-		
+		/*
 		int empty_val;
 		sem_getvalue(&empty, &empty_val);
 		int full_val;
 		sem_getvalue(&full, &full_val);
 		std::cout << "(producer) in= "<< in << ", (producer) full= "<< full_val << std::endl << 
 		"(consumer) out= " << out << ", (consumer) empty= "<< empty_val << std::endl << std::endl;
+		*/
 
+		/*http://20sep1995.blogspot.com/2019/02/how-to-run-orb-slam-with-your-own-data.html*/
+		time_stamp = (0.2) * (counter + 1);
 
 		// Pass the image to the SLAM system
-        SLAM.TrackMonocular(getframe(), time_stamp);
+        auto tcw = SLAM.TrackMonocular(getframe(), time_stamp);
+
+		pthread_mutex_lock(&mutex2);
+		if (ptracker->mLastProcessedState != ORB_SLAM2::Tracking::NOT_INITIALIZED)
+		{
+
+			std::cout << "isSlamInitialized" << true << std::endl; 
+	        if (!tcw.empty())
+	        {
+	        	std::cout << "listPose" << tcw(cv::Range(0,3), cv::Range(3, 4)).t() << std::endl; 
+	        }
+
+
+	        /*
+	        try{
+	        	//cv::Mat pose = tcw(cv::Range(0,3), cv::Range(3, 4)); // get twc[0:3, 3] - 4th column, up to 3rd row (excluded)
+	        	
+	        }
+	        catch (cv::Exception e){}
+			*/
+	        std::cout << "isWall" << (int)(ptracker->mLastProcessedState == ORB_SLAM2::Tracking::LOST) << std::endl;
+		    std::cout << "isTrackingLost" << (int)(ptracker->mLastProcessedState == ORB_SLAM2::Tracking::LOST) << std::endl;
+		    
+		}
+    	else{
+    		std::cout << "isSlamInitialized" << false << std::endl; 
+    	}
+		pthread_mutex_unlock(&mutex2);
 
         #ifdef COMPILEDWITHC11
         std::chrono::steady_clock::time_point t2 = std::chrono::steady_clock::now();
 #else
         std::chrono::monotonic_clock::time_point t2 = std::chrono::monotonic_clock::now();
 #endif
-        
+        //usleep(0.1);
+        /*
         pthread_mutex_lock(&mutex2);
         consume_time= std::chrono::duration_cast<std::chrono::duration<double> >(t2 - t1).count();
         std::cout << "(producer) produce_time= " << produce_time << std::endl <<
         "(consumer) consume_time= " << consume_time << std::endl << std::endl;
         pthread_mutex_unlock(&mutex2);
         counter++;
- 		
+ 		*/
         /*
 		// Wait to load the next frame
 		double T = (0.4) * (counter + 2) - time_stamp;
@@ -283,8 +322,6 @@ int main()
 	// Stop all threads
     SLAM.Shutdown();
     std::cout << "Hi I am Here, Slam is shutdown" << std::endl;
-    // save the map
-    saveMap(SLAM);
 
     // Save camera trajectory
     SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");
@@ -293,11 +330,9 @@ int main()
 
 
 
-void saveMap(ORB_SLAM2::System& SLAM){
+void saveMap(ORB_SLAM2::System* SLAM){
 
-	std::cout<<"saving the map"<<std::endl;
-
-    std::vector<ORB_SLAM2::MapPoint*> mapPoints = SLAM.GetMap()->GetAllMapPoints();
+    std::vector<ORB_SLAM2::MapPoint*> mapPoints = SLAM->GetMap()->GetAllMapPoints();
     std::ofstream pointData;
     pointData.open("/tmp/pointData.csv");
     for(auto p : mapPoints) {
@@ -309,6 +344,9 @@ void saveMap(ORB_SLAM2::System& SLAM){
         }
     }
     pointData.close();
+    pthread_mutex_lock(&mutex2);
+    std::cout << "isMapSaved" << true << std::endl;
+    pthread_mutex_unlock(&mutex2);
 }
 
 
@@ -321,22 +359,6 @@ void init_vars()
 } 
 
 
-bool continue_processing()
-{
-	if(continue_slam)
-		return true;
-	else{
-		int full_val;
-		sem_getvalue(&full, &full_val);
-		int empty_val;
-		sem_getvalue(&empty, &empty_val);
-
-		bool safe_to_quit = full_val > 1 && empty_val > 1;
-		if (safe_to_quit)
-			return false;
-		return true;
-	}
-}
 
 
 #define PORT "8080"

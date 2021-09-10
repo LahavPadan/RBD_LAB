@@ -25,13 +25,16 @@ key = 4
 
 class CppCommunication(object):
     def __init__(self, subproc_path=None, commands_to_cpp=None, queries_from_cpp=None, controls=None):
-        self.running = True
+
+        self.lock_running = Lock()
+        self._running = True
         # keyboard control
         self.controls = None
         self.key_listener = None
         self.keydown = False
         # list of possible queries to be fetched from cpp
         self.queries_from_cpp = queries_from_cpp
+        self.can_stopListening = Event()
         # dict of current queries from cpp
         self.request_from_stdout = {}
         # commands dict
@@ -56,15 +59,16 @@ class CppCommunication(object):
                                                   on_release=self.on_release)
             self.key_listener.start()
 
-    def end(self):
-        if self.subproc_path is not None:
-            self.request_from_cpp("END")
-            return_code = self.subproc.wait()
-            print("C++ script finished with exit code: ", return_code)
-            self.running = False
-        # no need to join key_listener
-        # as listener is joined once we return False from on_press
-        # see on_press for source link
+    @property
+    def running(self):
+        with self.lock_running:
+            running = self._running
+        return running
+
+    @running.setter
+    def running(self, value):
+        with self.lock_running:
+            self._running = value
 
     def __listen_to_output(self):
         """
@@ -75,7 +79,13 @@ class CppCommunication(object):
         Reseting Database... done
         New Map created with
         """
-        while self.running:
+        while True:
+            self.lock_running.acquire()
+            if not self._running:
+                self.lock_running.release()
+                break
+            self.lock_running.release()
+
             nextline = self.subproc.stdout.readline()
             if nextline == '' and self.subproc.poll() is not None:
                 break
@@ -87,28 +97,26 @@ class CppCommunication(object):
                 sys.stdout.flush()
             """
 
-            for query in self.request_from_stdout:
+            for query in list(self.request_from_stdout):
                 if query in nextline:
                     retrieved, retrieval = self.request_from_stdout[query]
                     retrieval = nextline.split(query, 1)[1].rstrip()
                     self.request_from_stdout[query] = (retrieved, retrieval)
                     retrieved.set()
 
-                    if query == 'isWall':
-                        sys.stdout.write(nextline)
-                        sys.stdout.flush()
         # cleaning up
-        t_end = time() + 30  # runs for half a minute
-        while time() < t_end:
+        print("Cleaning up requests1")
+        while not self.can_stopListening.is_set():
+            print("Cleaning up requests2")
             # release all awaiting requests
-            for query in self.request_from_stdout:
+            for query in list(self.request_from_stdout):
                 retrieved, retrieval = self.request_from_stdout[query]
                 if "is" in query:
-                    retrieval = False
+                    retrieval = "False"
                 elif "list" in query:
-                    retrieval = []
+                    retrieval = "[]"
                 else:
-                    retrieval = None
+                    retrieval = "None"
                 self.request_from_stdout[query] = (retrieved, retrieval)
                 retrieved.set()
 
@@ -121,7 +129,7 @@ class CppCommunication(object):
             conn, addr = s.accept()
             with conn:
                 print('Connected by', addr)
-                while self.running and not received_end:
+                while not received_end:
                     self.command_pending.wait()
                     with self.lock_send_command:
                         if self.last_command == 'END':
@@ -172,6 +180,18 @@ class CppCommunication(object):
         """Reset on key up from keyboard listener"""
         self.keydown = False
 
+    def end(self):
+        """
+        if self.subproc_path is not None:
+            self.request_from_cpp("END")
+            return_code = self.subproc.wait()
+            print("C++ script finished with exit code: ", return_code)
+            self.running = False
+        # no need to join key_listener
+        # as listener is joined once we return False from on_press
+        # see on_press for source link
+        """
+        pass
 
 ########################################################################################################################
 
@@ -191,7 +211,10 @@ def generators_factory(iterable, size=None):
             while True:
                 if not mydeque:  # when the local deque is empty
                     with lock:
-                        newval = next(it)  # fetch a new value and
+                        try:
+                            newval = next(it)  # fetch a new value and
+                        except StopIteration:
+                            break
                         already_gone.append(newval)
                         for d in deques:  # load it to all the deques
                             d.append(newval)
