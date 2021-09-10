@@ -40,16 +40,17 @@ class PointCloud(object):
         """
 
         print("[POINTCLOUD] updating pointcloud...")
-        """
         self._app.request_from_cpp("SAVEMAP")
         self._app.request_from_cpp("isMapSaved")
-        """
         # shutil.move("/tmp/pointData.csv", "../data/pointData.csv")
         read_map()
         with self._lock_kdTree and self._lock_points:
             self._kdTree = KDTree(self._points, leaf_size=2)
-        # schedule next map update
-        Timer(30, self.update_map)
+
+        if self._app.running:
+            # schedule next map update
+            map_update = Timer(30, self.update_map)
+            map_update.start()
 
     def plot(self):
         with self._lock_points:
@@ -92,11 +93,13 @@ class PointCloud(object):
         except scipy.spatial.qhull.QhullError:
             while self._lock_points.acquire() and len(self._points) < 5:
                 self._lock_points.release()
+                if not self._app.running:
+                    return point
                 sleep(10)
             self._lock_points.release()
 
             # Edge case: 'point' itself is on pointcloud, resulting in an identity point. thus k=5, not k=4
-            # do the previous query, but now, can take points in arbitrary range
+            # do the previous query, but now, its possible to take points from arbitrary range
             nn_dist, nn_indices = self._kdTree.query([point], k=5)
             with self._lock_points:
                 all_nns = [self._points[idx] for idx in nn_indices]
@@ -113,4 +116,6 @@ class PointCloud(object):
         plt.show()
         self.plot()
         """
-        return np.subtract(centroid, point)  # vector subtraction
+        movement_vector = np.subtract(centroid, point)  # vector subtraction
+        movement_vector = np.append(movement_vector, 0)  # make it a 3D vector by adding dummy z coordinate
+        return movement_vector

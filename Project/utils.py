@@ -11,6 +11,7 @@ from pynput import keyboard
 import socket
 import struct
 import ast
+from time import time
 
 # generators_factory imports
 import collections
@@ -61,10 +62,9 @@ class CppCommunication(object):
             return_code = self.subproc.wait()
             print("C++ script finished with exit code: ", return_code)
             self.running = False
-            self.output_listener.join()
-            self.command_sender.join()
         # no need to join key_listener
         # as listener is joined once we return False from on_press
+        # see on_press for source link
 
     def __listen_to_output(self):
         """
@@ -97,6 +97,20 @@ class CppCommunication(object):
                     if query == 'isWall':
                         sys.stdout.write(nextline)
                         sys.stdout.flush()
+        # cleaning up
+        t_end = time() + 30  # runs for half a minute
+        while time() < t_end:
+            # release all awaiting requests
+            for query in self.request_from_stdout:
+                retrieved, retrieval = self.request_from_stdout[query]
+                if "is" in query:
+                    retrieval = False
+                elif "list" in query:
+                    retrieval = []
+                else:
+                    retrieval = None
+                self.request_from_stdout[query] = (retrieved, retrieval)
+                retrieved.set()
 
     def __send_command_to_cpp(self):
         received_end = False
@@ -121,7 +135,7 @@ class CppCommunication(object):
 
     def request_from_cpp(self, request):
         """API function to send requests"""
-        if request in self.commands_to_cpp:
+        if request in self.commands_to_cpp.keys():
             with self.lock_send_command:
                 self.last_command = request
                 self.command_pending.set()
@@ -165,7 +179,7 @@ class CppCommunication(object):
 def generators_factory(iterable, size=None):
     it = iter(iterable)
     deques = []
-    already_gone = []
+    already_gone = collections.deque(maxlen=size)
     lock = Lock()
 
     def new_generator():
