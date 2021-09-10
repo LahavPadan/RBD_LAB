@@ -84,9 +84,12 @@ class TelloCV(object):
         self.need_stay_in_air = False
         # wait for the previous stay_in_air schedule to finish
         sleep(15)
+
+        self.pointcloud.end()
+
         print("About to join move_to_color")
         self.move_to_color_thread.join()
-
+        print("move_to_color joined.")
         # self.drone.land()
         """
         self.auto_navigator.join()  # NOT SURE I CAN EVEN JOIN IT
@@ -315,6 +318,7 @@ class TelloCV(object):
         print("[TELLO][TRACKER] Stopping tracker...")
         tracker.stop_tracking()
         tracking_thread.join()
+        print("[TELLO][TRACKER] Tracker thread joined.")
 
     def tracker_callback(self, t: color_tracker.ColorTracker):
         frame = t.debug_frame
@@ -322,12 +326,12 @@ class TelloCV(object):
         cv2.arrowedLine(frame, (int(FRAME_SIZE[0] / 2), int(FRAME_SIZE[1] / 2)),
                         (int(FRAME_SIZE[0] / 2 + 100 * cos(radians(self.angle))), int(FRAME_SIZE[1] / 2 - 100 * sin(radians(self.angle)))),
                         (0, 0, 255), 5)
-        cv2.putText(frame, "BACKWARD:", (int(FRAME_SIZE[0] / 2), FRAME_SIZE[1]-40), cv2.FONT_HERSHEY_SIMPLEX, 1, 255, thickness=2)
-        cv2.putText(frame, "FORWARD:", (int(FRAME_SIZE[0] / 2), 40), cv2.FONT_HERSHEY_SIMPLEX, 1, 255,
+        cv2.putText(frame, "BACKWARD", (int(FRAME_SIZE[0] / 2) - 40, FRAME_SIZE[1]-40), cv2.FONT_HERSHEY_SIMPLEX, 1, 255, thickness=2)
+        cv2.putText(frame, "FORWARD", (int(FRAME_SIZE[0] / 2) - 40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, 255,
                     thickness=2)
-        cv2.putText(frame, "RIGHT:", (FRAME_SIZE[0] - 100, int(FRAME_SIZE[1] / 2)), cv2.FONT_HERSHEY_SIMPLEX, 1, 255,
+        cv2.putText(frame, "RIGHT", (FRAME_SIZE[0] - 100, int(FRAME_SIZE[1] / 2)), cv2.FONT_HERSHEY_SIMPLEX, 1, 255,
                     thickness=2)
-        cv2.putText(frame, "LEFT:", (0, int(FRAME_SIZE[1] / 2)), cv2.FONT_HERSHEY_SIMPLEX, 1, 255,
+        cv2.putText(frame, "LEFT", (0, int(FRAME_SIZE[1] / 2)), cv2.FONT_HERSHEY_SIMPLEX, 1, 255,
                     thickness=2)
         cv2.imshow("debug", frame)
         cv2.waitKey(1)

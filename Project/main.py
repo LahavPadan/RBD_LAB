@@ -81,7 +81,7 @@ class App(utils.CppCommunication):
             # ORB_SLAM2 requires size of WIDTH 640, HEIGHT 480
             frame = cv2.resize(frame, (640, 480))
             yield frame
-            if not self.running:
+            if self.running:
                 is_success, frame = self._cap.read()
             else:
                 break
@@ -137,7 +137,9 @@ class App(utils.CppCommunication):
         #self.stop_frames.set()
         self.can_stopListening.set()
         self.output_listener.join()
+        print("output_listener joined.")
         self.command_sender.join()
+        print("command_sender joined.")
         # no need to join key_listener
         # as listener is joined once we return False from on_press
         # see on_press for source link

@@ -107,12 +107,15 @@ class CppCommunication(object):
         # cleaning up
         print("Cleaning up requests1")
         while not self.can_stopListening.is_set():
-            print("Cleaning up requests2")
+            # print("Cleaning up requests2")
             # release all awaiting requests
             for query in list(self.request_from_stdout):
-                retrieved, retrieval = self.request_from_stdout[query]
+                try:
+                    retrieved, retrieval = self.request_from_stdout[query]
+                except KeyError:
+                    break
                 if "is" in query:
-                    retrieval = "False"
+                    retrieval = "0"  # equivalent to printing false in cpp
                 elif "list" in query:
                     retrieval = "[]"
                 else:
@@ -213,11 +216,11 @@ def generators_factory(iterable, size=None):
                     with lock:
                         try:
                             newval = next(it)  # fetch a new value and
+                            already_gone.append(newval)
+                            for d in deques:  # load it to all the deques
+                                d.append(newval)
                         except StopIteration:
                             break
-                        already_gone.append(newval)
-                        for d in deques:  # load it to all the deques
-                            d.append(newval)
                 yield mydeque.popleft()
 
         return gen(new_deque)

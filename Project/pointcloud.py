@@ -19,6 +19,14 @@ class PointCloud(object):
         self._lock_points = Lock()
         self._lock_kdTree = Lock()
         self.update_map()
+        self.map_update = None
+
+    def end(self):
+        try:
+            # cancel previous schedule
+            self.map_update.cancel()
+        except AttributeError:
+            pass
 
     def update_map(self):
         def read_map():
@@ -47,10 +55,11 @@ class PointCloud(object):
         with self._lock_kdTree and self._lock_points:
             self._kdTree = KDTree(self._points, leaf_size=2)
 
+        # maybe there is not need for this check
         if self._app.running:
             # schedule next map update
-            map_update = Timer(30, self.update_map)
-            map_update.start()
+            self.map_update = Timer(30, self.update_map)
+            self.map_update.start()
 
     def plot(self):
         with self._lock_points:
