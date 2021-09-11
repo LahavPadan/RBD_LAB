@@ -96,10 +96,13 @@ class CppCommunication(object):
                 sys.stdout.write(nextline)
                 sys.stdout.flush()
             """
-
+            # https://stackoverflow.com/questions/11941817/how-to-avoid-runtimeerror-dictionary-changed-size-during-iteration-error
             for query in list(self.request_from_stdout):
                 if query in nextline:
-                    retrieved, retrieval = self.request_from_stdout[query]
+                    try:
+                        retrieved, retrieval = self.request_from_stdout[query]
+                    except KeyError:
+                        break
                     retrieval = nextline.split(query, 1)[1].rstrip()
                     self.request_from_stdout[query] = (retrieved, retrieval)
                     retrieved.set()

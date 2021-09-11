@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import scipy
-from scipy.spatial.tests.test_qhull import points
 from sklearn.neighbors import KDTree
 from scipy.spatial import Delaunay
 from threading import Timer, Lock

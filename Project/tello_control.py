@@ -54,12 +54,9 @@ class TelloCV(object):
 
         # self.drone.connect()
         # self.drone.streamon()
-        while not self.app.request_from_cpp("isSlamInitialized"):
-            print("[TELLO][INIT_DRONE] Waiting for ORB_SLAM2 to initialize...")
-            self.scan_env()
-            if not self.app.running:
-                return
 
+        print("[TELLO][INIT_DRONE] Waiting for ORB_SLAM2 to initialize...")
+        self.scan_env(exit_clause=lambda: self.app.request_from_cpp("isSlamInitialized"))
         print("[TELLO][INIT_DRONE] ORB_SLAM2 initialized.")
         # calibrate_map_scale()
 
@@ -128,19 +125,20 @@ class TelloCV(object):
         return wrapper
 
     @handle_stay_in_air
-    def scan_env(self, *args, **kwargs):
+    def scan_env(self, exit_clause, *args, **kwargs):
         print("[TELLO][SCAN_ENV] scanning environment for ORB_SLAM2...")
         degree_per_iteration = 30
         for _ in range(0, 360, degree_per_iteration):
+
+            if exit_clause() or not self.app.running:
+                break
+
             """
             self.drone.rotate_clockwise(degree_per_iteration)
             self.angle = (self.angle + degree_per_iteration) % 360  # ******IM CONCERNED ABOUT THIS******
             # wait for drone to rotate and orbslam to initialize
             """
             sleep(1)
-
-            if not self.app.running:
-                break
 
         print("[TELLO][SCAN_ENV] Done.")
 
@@ -242,13 +240,14 @@ class TelloCV(object):
         """
         print("[TELLO] moving... ")
 
-    def wander_around(self):
+    def wander_around(self, exit_clause):
         # point = 0.3, 0.3
-        print("[TELLO][WANDER_AROUND] searching where to go...")
-        cm = 20
-        point = self.slam_pose * 1000
-        self.move(self.pointcloud.eval_movement_vector(point), cm)
-        self.scan_env()
+        while not exit_clause():
+            print("[TELLO][WANDER_AROUND] searching where to go...")
+            cm = 20
+            point = self.slam_pose * 1000
+            self.move(self.pointcloud.eval_movement_vector(point), cm)
+            self.scan_env(exit_clause)
 
     """
     the hue range in
@@ -269,7 +268,10 @@ class TelloCV(object):
         tracking_thread.start()
 
         def get_tracked_object():
-            while True:
+            obj = None
+
+            def is_object_found():
+                nonlocal obj
                 try:
                     x, y, x_w, y_h = tracker.tracked_objects[-1].last_bbox
                     width = (x_w - x)
@@ -278,15 +280,20 @@ class TelloCV(object):
                     center = x + width / 2, y + height / 2  # ABOUT THIS ONE IM NOT TOO SURE - ITS THE CENTER IN FRAME
                     # NOT NECESSARILY IN REAL WORLD
                     if area > 300:  # filter-out false positives
-                        return {'area': area, 'center': center}
+                        obj = {'area': area, 'center': center}
+                        return True
                 except IndexError:
                     pass
-
                 if not self.app.running:
                     print("Returning that dummy object found dict")
-                    return {'area': 0, 'center': (FRAME_SIZE[0] / 2, FRAME_SIZE[1] / 2)}
+                    # returning dummy object_found dict
+                    obj = {'area': 0, 'center': (FRAME_SIZE[0] / 2, FRAME_SIZE[1] / 2)}
+                    return True
+                return False
 
-                self.wander_around()
+            self.wander_around(exit_clause=is_object_found)
+            print(f'received {obj} from is_object_found')
+            return obj
 
         res = get_tracked_object()
         print(f"[TELLO][TRACKER] OBJECT FOUND; center:{res['center']}, area:{res['area']}."
@@ -298,17 +305,9 @@ class TelloCV(object):
         self.move(X, xoffset)
         self.move(Z, yoffset)  # y axis in frame = z axis in real world
 
-        print("determine in which direction to approach object")
-        # determine in which direction to approach object
-        self.move(Y, 20)
-        res_forward = get_tracked_object()
-        self.move(Y, -40)
-        res_back = get_tracked_object()
-        self.move(Y, 20)
-
-        cm = 10 if res_forward['area'] >= res_back['area'] else -10
-        print("move in that direction until object is close enough")
-        # move in that direction until object is close enough
+        print("move forward until object is close enough")
+        # move forward until object is close enough
+        cm = 10
         self.move(Y, cm)
         res = get_tracked_object()
         while res['area'] < 700 and self.app.running:
@@ -324,9 +323,11 @@ class TelloCV(object):
         frame = t.debug_frame
         # Show the direction vector output in the cv2 window
         cv2.arrowedLine(frame, (int(FRAME_SIZE[0] / 2), int(FRAME_SIZE[1] / 2)),
-                        (int(FRAME_SIZE[0] / 2 + 100 * cos(radians(self.angle))), int(FRAME_SIZE[1] / 2 - 100 * sin(radians(self.angle)))),
+                        (int(FRAME_SIZE[0] / 2 + 100 * cos(radians(self.angle))),
+                         int(FRAME_SIZE[1] / 2 - 100 * sin(radians(self.angle)))),
                         (0, 0, 255), 5)
-        cv2.putText(frame, "BACKWARD", (int(FRAME_SIZE[0] / 2) - 40, FRAME_SIZE[1]-40), cv2.FONT_HERSHEY_SIMPLEX, 1, 255, thickness=2)
+        cv2.putText(frame, "BACKWARD", (int(FRAME_SIZE[0] / 2) - 40, FRAME_SIZE[1] - 40), cv2.FONT_HERSHEY_SIMPLEX, 1,
+                    255, thickness=2)
         cv2.putText(frame, "FORWARD", (int(FRAME_SIZE[0] / 2) - 40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, 255,
                     thickness=2)
         cv2.putText(frame, "RIGHT", (FRAME_SIZE[0] - 100, int(FRAME_SIZE[1] / 2)), cv2.FONT_HERSHEY_SIMPLEX, 1, 255,
