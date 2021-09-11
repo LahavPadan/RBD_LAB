@@ -279,7 +279,7 @@ class TelloCV(object):
                     area = width * height
                     center = x + width / 2, y + height / 2  # ABOUT THIS ONE IM NOT TOO SURE - ITS THE CENTER IN FRAME
                     # NOT NECESSARILY IN REAL WORLD
-                    if area > 300:  # filter-out false positives
+                    if area > 30000:  # filter-out false positives
                         obj = {'area': area, 'center': center}
                         return True
                 except IndexError:
@@ -310,7 +310,7 @@ class TelloCV(object):
         cm = 10
         self.move(Y, cm)
         res = get_tracked_object()
-        while res['area'] < 700 and self.app.running:
+        while res['area'] < 180000 and self.app.running:
             self.move(Y, cm)
             res = get_tracked_object()
 
