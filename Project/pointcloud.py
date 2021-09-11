@@ -76,7 +76,7 @@ class PointCloud(object):
     def eval_movement_vector(self, point: np.array, momentum_vec: np.array) -> np.array:
         """
         :param point: (3D point) where drone currently is, according to ORB_SLAM2.
-        :param momentum_vec: (2D, XY vector, normalized) indicating to which direction drone was previously heading.
+        :param momentum_vec: (3D vector, normalized) indicating to which direction drone was previously heading.
         :return: (3D vector, normalized) movement vector towards locally most "vacant" location.
         """
 
@@ -93,7 +93,7 @@ class PointCloud(object):
             # evaluate how "close" this triangle is
             centroid = tri_centroid(tri)
             centroid /= np.linalg.norm(centroid)  # normalize vector
-            cosine_of_angle = np.dot(centroid, momentum_vec)
+            cosine_of_angle = np.dot(centroid, momentum_vec[:-1])
             """Note: the scale factor (in case 1000) affects how this heuristic performs"""
             return (0.1 * cosine_of_angle + 2) * area
 

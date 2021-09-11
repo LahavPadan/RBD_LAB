@@ -10,6 +10,8 @@ from face_recognition import FaceRec
 import utils
 import pointcloud
 
+import color_tracker
+
 # INPUT_FORM: VIDEO/WEB-CAM/TELLO
 INPUT_FORM = 'WEB-CAM'
 RUN_ORB_SLAM = True

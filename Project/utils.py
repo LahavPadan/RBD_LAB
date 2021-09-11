@@ -324,9 +324,19 @@ def tri_centroid(tri: np.array) -> np.array:
     return np.array([(x1 + x2 + x3) / 3, (y1 + y2 + y3) / 3])
 
 
-def calc_angle(vec1: np.array, vec2: np.array) -> int:
-    dot = np.dot(vec1, vec2)  # dot product
-    det = np.linalg.det([vec1, vec2])  # determinant
+def calc_angle_XY_plane(vec1: np.array, vec2: np.array) -> int:
+    (x1, y1), (x2, y2) = vec1[:-1], vec2[:-1]  # get vectors in 2D
+    dot = x1 * x2 + y1 * y2  # dot product
+    det = x1 * y2 - y1 * x2  # determinant
     angle = int(atan2(det, dot) * (180 / pi))  # atan2(y, x) or atan2(sin, cos)
     return angle
 
+
+def vec_clockwise90_XY_plane(vec: np.array) -> np.array:
+    vec = vec[:-1]  # transform to 2D vector
+    rotation_mat = np.array([[0, 1],
+                             [-1, 0]])
+    print("rotation mat shape: ", rotation_mat.shape)
+    rotated_vec = np.dot(rotation_mat, vec)
+    rotated_vec = np.append(rotated_vec, 0)  # make it a 3D vector
+    return rotated_vec
