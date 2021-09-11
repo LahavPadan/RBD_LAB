@@ -7,7 +7,7 @@ import scipy
 from sklearn.neighbors import KDTree
 from scipy.spatial import Delaunay
 from threading import Timer, Lock
-from utils import tri_area, tri_centroid
+from utils import tri_centroid
 
 
 class PointCloud(object):
@@ -15,6 +15,7 @@ class PointCloud(object):
         self._app = app
         self._kdTree = None
         self._points: np.array = np.array([])
+        self.scale_factor = 1000
         self._lock_points = Lock()
         self._lock_kdTree = Lock()
         self.map_update = None
@@ -39,8 +40,8 @@ class PointCloud(object):
             df.columns = ['x', 'y', 'z']
             # https://stackoverflow.com/questions/17241004/how-do-i-convert-a-pandas-series-or-index-to-a-numpy-array
             px, py = df['x'].to_numpy(), df['y'].to_numpy()
-            px *= 1000
-            py *= 1000
+            px *= self.scale_factor
+            py *= self.scale_factor
             px = np.round_(px)
             py = np.round_(py)
             with self._lock_points:
@@ -72,16 +73,40 @@ class PointCloud(object):
         plt.axis("equal")
         plt.show()
 
-    def eval_movement_vector(self, point: np.array) -> np.array:
+    def eval_movement_vector(self, point: np.array, momentum_vec: np.array) -> np.array:
+        """
+        :param point: (3D point) where drone currently is, according to ORB_SLAM2.
+        :param momentum_vec: (2D, XY vector, normalized) indicating to which direction drone was previously heading.
+        :return: (3D vector, normalized) movement vector towards locally most "vacant" location.
+        """
+
+        def heuristic(tri) -> float:
+            """
+            Idea: choose the most "vacant" triangle, whose centroid is not too different from where the drone
+            was heading initially
+            :param tri: scipy's triangle data structure
+            :return: score based on the heuristic
+            """
+            # calculate area of triangle
+            area_det_matrix = np.hstack((tri, np.ones((3, 1))))
+            area = 0.5 * np.abs(np.linalg.det(area_det_matrix))
+            # evaluate how "close" this triangle is
+            centroid = tri_centroid(tri)
+            centroid /= np.linalg.norm(centroid)  # normalize vector
+            cosine_of_angle = np.dot(centroid, momentum_vec)
+            """Note: the scale factor (in case 1000) affects how this heuristic performs"""
+            return (0.1 * cosine_of_angle + 2) * area
+
+        point = point * self.scale_factor
         print("[POINTCLOUD][eval_movement_vector] evaluating movement from ", point)
-        point = point[:-1]  # all but last element
+        point = point[:-1]  # drop Z dimension, make it 2D vector
         print("point of dimension drop: ", point)
         # PROBABLY A SCALE ISSUE HERE
 
         # https://stackoverflow.com/questions/48126771/nearest-neighbour-search-kdtree
         # NN = nearest neighbors
         with self._lock_kdTree:
-            nn_indices = self._kdTree.query_radius([point], r=60)  # NNs within distance of 60 of point
+            nn_indices = self._kdTree.query_radius([point], r=60)  # NNs within distance of 60 to point
         with self._lock_points:
             all_nns = [self._points[idx] for idx in nn_indices]
         all_nns = np.array(*all_nns)
@@ -106,7 +131,10 @@ class PointCloud(object):
         try:
             triangles = Delaunay(all_nns, qhull_options="QJ")
         except scipy.spatial.qhull.QhullError:
-            while self._lock_points.acquire() and len(self._points) < 5:
+            while True:
+                self._lock_points.acquire()
+                if len(self._points) >= 5:
+                    break
                 self._lock_points.release()
                 if not self._app.running:
                     return point
@@ -122,7 +150,7 @@ class PointCloud(object):
             triangles = Delaunay(all_nns, qhull_options="QJ")
 
         # https://stackoverflow.com/questions/18296755/python-max-function-using-key-and-lambda-expression
-        tri = max(all_nns[triangles.simplices], key=tri_area)
+        tri = max(all_nns[triangles.simplices], key=heuristic)
         centroid = tri_centroid(tri)
         print("centroid: ", centroid)
         """
@@ -137,3 +165,6 @@ class PointCloud(object):
         movement_vector = np.append(movement_vector, 0)  # make it a 3D vector by adding dummy z coordinate
         movement_vector /= np.linalg.norm(movement_vector)  # normalize vector
         return movement_vector
+
+
+

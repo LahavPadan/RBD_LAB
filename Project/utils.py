@@ -16,8 +16,9 @@ from time import time
 # generators_factory imports
 import collections
 
-# tri_area imports
-from numpy.linalg import det
+# calc_angle imports
+from math import atan2, pi
+
 
 PORT, HOST_IP = 8080, '127.0.0.1'
 key = 4
@@ -129,6 +130,7 @@ class CppCommunication(object):
     def __send_command_to_cpp(self):
         received_end = False
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            # https://stackoverflow.com/questions/6380057/python-binding-socket-address-already-in-use
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind((HOST_IP, PORT))
             s.listen()
@@ -188,7 +190,6 @@ class CppCommunication(object):
         self.keydown = False
 
     def end(self):
-        """
         if self.subproc_path is not None:
             self.request_from_cpp("END")
             return_code = self.subproc.wait()
@@ -197,8 +198,6 @@ class CppCommunication(object):
         # no need to join key_listener
         # as listener is joined once we return False from on_press
         # see on_press for source link
-        """
-        pass
 
 ########################################################################################################################
 
@@ -320,21 +319,14 @@ def generate_training_faces(subject_name):
 
 ########################################################################################################################
 
-def current_and_next(iterable):
-    items, nexts = tee(iterable, 2)
-    # excluding the last element of the iterable. len(iterable) - 1 _th' element is included :
-    items = islice(items, None, len(iterable) - 1)
-    nexts = islice(nexts, 1, None)
-    return zip(items, nexts)
-
-
-########################################################################################################################
-
-def tri_area(tri: np.array):
-    tri = np.hstack((tri, np.ones((3, 1))))
-    return 0.5 * np.abs(det(tri))
-
-
 def tri_centroid(tri: np.array) -> np.array:
     (x1, y1), (x2, y2), (x3, y3) = tri
     return np.array([(x1 + x2 + x3) / 3, (y1 + y2 + y3) / 3])
+
+
+def calc_angle(vec1: np.array, vec2: np.array) -> int:
+    dot = np.dot(vec1, vec2)  # dot product
+    det = np.linalg.det([vec1, vec2])  # determinant
+    angle = int(atan2(det, dot) * (180 / pi))  # atan2(y, x) or atan2(sin, cos)
+    return angle
+

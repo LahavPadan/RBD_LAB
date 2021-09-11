@@ -1,6 +1,5 @@
 import getpass
 import os
-import threading
 from threading import Event
 import cv2
 import numpy as np
