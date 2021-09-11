@@ -1,5 +1,6 @@
 import getpass
 import os
+import threading
 from threading import Event
 import cv2
 import numpy as np
@@ -143,7 +144,6 @@ class App(utils.CppCommunication):
         # no need to join key_listener
         # as listener is joined once we return False from on_press
         # see on_press for source link
-
 
 if __name__ == "__main__":
     # utils.generate_training_faces(subject_name=getpass.getuser())

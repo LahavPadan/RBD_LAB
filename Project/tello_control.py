@@ -20,6 +20,7 @@ class TelloCV(object):
     def __init__(self, app):
         self.app = app
         self.drone = djitellopy.Tello()
+        self.speed = 20  # 20 cm/sec
         self.angle = 90  # drone facing forward = 90 degrees on the unit circle, vector (0, 1, 0)
 
         self.slam_to_real_world_scale = 1
@@ -54,6 +55,7 @@ class TelloCV(object):
 
         # self.drone.connect()
         # self.drone.streamon()
+        # self.drone.set_speed(self.speed)
 
         print("[TELLO][INIT_DRONE] Waiting for ORB_SLAM2 to initialize...")
         self.scan_env(exit_clause=lambda: self.app.request_from_cpp("isSlamInitialized"))
@@ -76,11 +78,22 @@ class TelloCV(object):
     def end(self):
         print("[TELLO][END] Ending TelloCV...")
         # release any move authorization request
-        self.ack.set()  # the bit stays turned on
+        # self.ack.set()  # the bit stays turned on
 
+        print("[TELLO][END] Ending stay_in_air...")
         self.need_stay_in_air = False
+        self.stay_in_air.cancel()
+        while self.stay_in_air is not None:
+            try:
+                # cancel previous schedule
+                self.stay_in_air.cancel()
+                self.stay_in_air.join()
+                self.stay_in_air = None
+            except AttributeError:
+                pass
+        print("[TELLO][END] stay_in_air ended.")
         # wait for the previous stay_in_air schedule to finish
-        sleep(15)
+        # sleep(15)
 
         self.pointcloud.end()
 
@@ -187,7 +200,8 @@ class TelloCV(object):
                         break
                     # self.drone.move(locals()[axis+"movement"], locals()[axis + "norm"])
                     # wait for the drone to move
-                    sleep(1)
+                    #sleep((locals()[axis + "norm"] / self.speed) + 1)
+                    sleep(2)
 
         # update pose variables
         self.slam_pose = np.array(self.app.request_from_cpp("listPose")) * self.slam_to_real_world_scale
@@ -327,13 +341,13 @@ class TelloCV(object):
                         (int(FRAME_SIZE[0] / 2 + 100 * cos(radians(self.angle))),
                          int(FRAME_SIZE[1] / 2 - 100 * sin(radians(self.angle)))),
                         (0, 0, 255), 5)
-        cv2.putText(frame, "BACKWARD", (int(FRAME_SIZE[0] / 2) - 40, FRAME_SIZE[1] - 40), cv2.FONT_HERSHEY_SIMPLEX, 1,
-                    255, thickness=2)
-        cv2.putText(frame, "FORWARD", (int(FRAME_SIZE[0] / 2) - 40, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, 255,
-                    thickness=2)
-        cv2.putText(frame, "RIGHT", (FRAME_SIZE[0] - 100, int(FRAME_SIZE[1] / 2)), cv2.FONT_HERSHEY_SIMPLEX, 1, 255,
-                    thickness=2)
-        cv2.putText(frame, "LEFT", (0, int(FRAME_SIZE[1] / 2)), cv2.FONT_HERSHEY_SIMPLEX, 1, 255,
-                    thickness=2)
+        cv2.putText(frame, "BACKWARD", (int(FRAME_SIZE[0] / 2) - 60, FRAME_SIZE[1] - 40), cv2.FONT_HERSHEY_SIMPLEX, 1,
+                    (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(frame, "FORWARD", (int(FRAME_SIZE[0] / 2) - 60, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255),
+                    2, cv2.LINE_AA)
+        cv2.putText(frame, "RIGHT", (FRAME_SIZE[0] - 100, int(FRAME_SIZE[1] / 2)), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255),
+                    2, cv2.LINE_AA)
+        cv2.putText(frame, "LEFT", (0, int(FRAME_SIZE[1] / 2)), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255),
+                    2, cv2.LINE_AA)
         cv2.imshow("debug", frame)
         cv2.waitKey(1)

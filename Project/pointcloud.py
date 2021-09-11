@@ -21,13 +21,16 @@ class PointCloud(object):
         self.update_map()
 
     def end(self):
+        print("Ending pointcloud...")
         while self.map_update is not None:
             try:
                 # cancel previous schedule
                 self.map_update.cancel()
+                self.map_update.join()
                 self.map_update = None
             except AttributeError:
                 pass
+        print("pointcloud ended")
 
     def update_map(self):
         def read_map():
