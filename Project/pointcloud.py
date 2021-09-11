@@ -17,15 +17,17 @@ class PointCloud(object):
         self._points: np.array = np.array([])
         self._lock_points = Lock()
         self._lock_kdTree = Lock()
-        self.update_map()
         self.map_update = None
+        self.update_map()
 
     def end(self):
-        try:
-            # cancel previous schedule
-            self.map_update.cancel()
-        except AttributeError:
-            pass
+        while self.map_update is not None:
+            try:
+                # cancel previous schedule
+                self.map_update.cancel()
+                self.map_update = None
+            except AttributeError:
+                pass
 
     def update_map(self):
         def read_map():
@@ -41,10 +43,8 @@ class PointCloud(object):
             with self._lock_points:
                 self._points = np.column_stack((px, py))
 
-        """
-        while self._app.request_from_cpp("isTrackingLost"):  # NOT CLEAR ENOUGH
+        while self._app.request_from_cpp("isTrackingLost") and self._app.running:
             pass
-        """
 
         print("[POINTCLOUD] updating pointcloud...")
         self._app.request_from_cpp("SAVEMAP")
@@ -53,9 +53,11 @@ class PointCloud(object):
         read_map()
         with self._lock_kdTree and self._lock_points:
             self._kdTree = KDTree(self._points, leaf_size=2)
+        print("[POINTCLOUD] pointcloud updated.")
 
         # maybe there is not need for this check
         if self._app.running:
+            print("App is running, so map update is scheduled")
             # schedule next map update
             self.map_update = Timer(30, self.update_map)
             self.map_update.start()

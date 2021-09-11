@@ -126,21 +126,22 @@ class TelloCV(object):
 
     @handle_stay_in_air
     def scan_env(self, exit_clause, *args, **kwargs):
-        print("[TELLO][SCAN_ENV] scanning environment for ORB_SLAM2...")
+        print("[TELLO][SCAN_ENV] scanning environment...")
         degree_per_iteration = 30
         for _ in range(0, 360, degree_per_iteration):
 
             if exit_clause() or not self.app.running:
                 break
-
             """
             self.drone.rotate_clockwise(degree_per_iteration)
-            self.angle = (self.angle + degree_per_iteration) % 360  # ******IM CONCERNED ABOUT THIS******
-            # wait for drone to rotate and orbslam to initialize
+            # self.angle is only used inside cosine and sine, thus, no problem that self.angle will become
+            # arbitrarily large
+            self.angle = self.angle + degree_per_iteration
+            # wait for drone to rotate
             """
             sleep(1)
 
-        print("[TELLO][SCAN_ENV] Done.")
+        print("[TELLO][SCAN_ENV] done.")
 
     @handle_stay_in_air
     def move(self, vector: np.array, cm, *args, **kwargs):
