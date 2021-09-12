@@ -53,7 +53,10 @@ class PointCloud(object):
         print("[POINTCLOUD] updating pointcloud...")
         self._app.request_from_cpp("SAVEMAP")
         self._app.request_from_cpp("isMapSaved")
-        # shutil.move("/tmp/pointData.csv", "../data/pointData.csv")
+        try:
+            shutil.move("/tmp/pointData.csv", "../data/pointData.csv")
+        except FileNotFoundError:
+            pass
         read_map()
         with self._lock_kdTree and self._lock_points:
             self._kdTree = KDTree(self._points, leaf_size=2)

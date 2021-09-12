@@ -1,5 +1,6 @@
 import getpass
 import os
+import time
 from threading import Event
 import cv2
 import numpy as np
@@ -13,7 +14,7 @@ import pointcloud
 import color_tracker
 
 # INPUT_FORM: VIDEO/WEB-CAM/TELLO
-INPUT_FORM = 'WEB-CAM'
+INPUT_FORM = 'TELLO'
 RUN_ORB_SLAM = True
 OUTPUT_FORM = 'WINDOW'
 
@@ -32,7 +33,7 @@ def processFrame(frame):
 class App(utils.CppCommunication):
     def __init__(self):
         self.controls = {
-            's': lambda: self._tello.ack.set(),
+            's': lambda: self._tello.set_ack(),
         }
         self.commands_to_cpp = {
             "END": 1,
@@ -52,17 +53,17 @@ class App(utils.CppCommunication):
         self._tello = None
         self._cap = None
         self._input_video_path = input_video_path
-        self.init_cap()
-        self.stop_frames = Event()
+
+        # self.stop_frames = Event()
         self.factory = utils.generators_factory(self.__framesGenerator(), size=10)
 
         if INPUT_FORM == 'TELLO':
             self._tello = TelloCV(self)
 
+        self.init_cap()
         # ***DELETE THIS***
         if INPUT_FORM == 'WEB-CAM':
             self._tello = TelloCV(self)
-
     def init_cap(self):
         if INPUT_FORM == 'VIDEO':
             if self._input_video_path is None:
@@ -73,20 +74,43 @@ class App(utils.CppCommunication):
         if INPUT_FORM == 'WEB-CAM':
             self._cap = cv2.VideoCapture(0)
             self._cap.open(0)
-
+        """
         if INPUT_FORM == 'TELLO':
             self._cap = self._tello.drone.get_video_capture()
+        """
 
     def __framesGenerator(self):
-        is_success, frame = self._cap.read()
-        while frame is not None:
-            # ORB_SLAM2 requires size of WIDTH 640, HEIGHT 480
+        if INPUT_FORM == 'TELLO':
+            """
+            for packet in self._tello.container.demux((self._tello.vid_stream,)):
+                for frame in packet.decode():
+                    # convert frame to opencv image
+                    frame = cv2.cvtColor(np.array(
+                        frame.to_image()), cv2.COLOR_RGB2BGR)
+                    yield frame
+            """
+            frame_obj = self._tello.drone.get_frame_read()
+            frame = frame_obj.frame
             frame = cv2.resize(frame, (640, 480))
-            yield frame
-            if self.running:
-                is_success, frame = self._cap.read()
-            else:
-                break
+            while frame is not None:
+                yield frame
+                if self.running:
+                    frame = frame_obj.frame
+                    frame = cv2.resize(frame, (640, 480))
+                else:
+                    break
+                time.sleep(1 / 30)
+
+        else:
+            is_success, frame = self._cap.read()
+            while frame is not None:
+                # ORB_SLAM2 requires size of WIDTH 640, HEIGHT 480
+                frame = cv2.resize(frame, (640, 480))
+                yield frame
+                if self.running:
+                    is_success, frame = self._cap.read()
+                else:
+                    break
 
     def run(self):
         if INPUT_FORM not in ['WEB-CAM', 'VIDEO', 'TELLO']:
