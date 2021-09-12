@@ -332,11 +332,11 @@ def calc_angle_XY_plane(vec1: np.array, vec2: np.array) -> int:
     return angle
 
 
-def vec_clockwise90_XY_plane(vec: np.array) -> np.array:
-    vec = vec[:-1]  # transform to 2D vector
+def find_relative_3D_space(Y: np.array) -> np.array:
     rotation_mat = np.array([[0, 1],
                              [-1, 0]])
     print("rotation mat shape: ", rotation_mat.shape)
-    rotated_vec = np.dot(rotation_mat, vec)
-    rotated_vec = np.append(rotated_vec, 0)  # make it a 3D vector
-    return rotated_vec
+    rotated_vec = np.dot(rotation_mat, Y[:-1])
+    X = np.append(rotated_vec, 0)  # make it a 3D vector
+    Z = np.array([0, 0, 1])
+    return X, Y, Z

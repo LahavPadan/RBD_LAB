@@ -5,14 +5,11 @@ import random
 import numpy as np
 from math import cos, sin, radians
 from pointcloud import PointCloud
-from utils import calc_angle_XY_plane, vec_clockwise90_XY_plane
+from utils import calc_angle_XY_plane, find_relative_3D_space
 import cv2
 import color_tracker
 
 FRAME_SIZE = (640, 480)
-X = np.array([1, 0, 0])
-Y = np.array([0, 1, 0])
-Z = np.array([0, 0, 1])
 
 
 class TelloCV(object):
@@ -23,7 +20,9 @@ class TelloCV(object):
         self.drone = djitellopy.Tello()
         self.speed = 10  # 10 cm/sec
         self._angle = 90  # drone facing forward = 90 degrees on the unit circle
+
         self.momentum_vec = np.array([0, 1, 0])  # 3D vector: (0, 1, 0)
+        self.X, self.Y, self.Z = np.array([1, 0, 0]), np.array([0, 1, 0]), np.array([0, 0, 1])
 
         self.slam_to_real_world_scale = 1
         self.slam_pose: np.array = np.array([])
@@ -45,6 +44,8 @@ class TelloCV(object):
         self.ack_accepted = True
 
     def _init_drone(self):
+
+        """
         def calibrate_map_scale():
             self.move(Z, 50)
             # *OR* height_drone = 50
@@ -54,11 +55,12 @@ class TelloCV(object):
             print("slam_height is ", slam_height)
             # calculate the real world scale
             self.slam_to_real_world_scale = height_drone / slam_height
+        """
         self.drone.connect()
         self.drone.streamon()
         self.drone.set_speed(self.speed)
         self.drone.takeoff()
-        self.stay_in_air = Timer(1, self.move, args=[Z, 20 if TelloCV.auto_movement_bool else -20],
+        self.stay_in_air = Timer(1, self.move, args=[self.Z, 20 if TelloCV.auto_movement_bool else -20],
                                  kwargs={'just_stay_in_air': True})
         self.start_time_stay_in_air = time()
         self.stay_in_air.start()
@@ -72,16 +74,20 @@ class TelloCV(object):
             # notice that after scan, the angle can be everything. Because the exit clause can take place at any point
         print("[TELLO][INIT_DRONE] ORB_SLAM2 initialized.")
 
+
+        print("Im trying to go left")
+        self.move(self.X, -30)
+
         # from this point onwards, ORB_SLAM2 is initialized (but can lose localization)
 
         # calibrate_map_scale()
-
+        """
         self.slam_pose = np.array(self.app.request_from_cpp("listPose")) * self.slam_to_real_world_scale
         self.pointcloud = PointCloud(self.app)
 
         self.move_to_color_thread = Thread(target=self.move_to_color)
         self.move_to_color_thread.start()
-
+        """
     def end(self):
         print("[TELLO][END] Ending TelloCV...")
         # release any move authorization request
@@ -137,7 +143,7 @@ class TelloCV(object):
                 # schedule next
                 if self.need_stay_in_air:
                     TelloCV.auto_movement_bool = not TelloCV.auto_movement_bool
-                    self.stay_in_air = Timer(8, self.move, args=[Z, 20 if TelloCV.auto_movement_bool else -20],
+                    self.stay_in_air = Timer(8, self.move, args=[self.Z, 20 if TelloCV.auto_movement_bool else -20],
                                              kwargs={'just_stay_in_air': True})
                     self.start_time_stay_in_air = time()
                     self.stay_in_air.start()
@@ -150,6 +156,7 @@ class TelloCV(object):
         self._angle = self._angle + diff_angle
         self.momentum_vec = np.array([cos(radians(self._angle)), sin(radians(self._angle))])
         self.momentum_vec = np.append(self.momentum_vec, 0)  # make it a 3D vector by adding dummy z coordinate
+        self.X, self.Y, self.Z = find_relative_3D_space(self.momentum_vec)
 
     @_handle_stay_in_air
     def scan_env(self, exit_clause, *args, **kwargs):
@@ -196,12 +203,12 @@ class TelloCV(object):
         print(f'[TELLO] rotating in angle of {angle}... ')
 
 
-        X_movement = np.dot(vector, X) * X
-        # redundant, the norm is the dot result
+        X_movement = np.dot(vector, self.X) * self.X
+        # redundant, the norm is the abs(dot)
         X_norm = np.linalg.norm(X_movement)
-        Y_movement = np.dot(vector, Y) * Y
+        Y_movement = np.dot(vector, self.Y) * self.Y
         Y_norm = np.linalg.norm(Y_movement)
-        Z_movement = np.dot(vector, Z) * Z
+        Z_movement = np.dot(vector, self.Z) * self.Z
         Z_norm = np.linalg.norm(Z_movement)
 
         X_movement = 'right' if X_movement[0] > 0 else 'left'
@@ -248,7 +255,7 @@ class TelloCV(object):
             while self.app.running and not moved:
                 print("[TELLO][WANDER_AROUND] attempting to move away from wall...")
                 # move away from wall, choose randomly another target to go to
-                axis = random.choice([X, Y])
+                axis = random.choice([self.X, self.Y])
                 direction = random.choice([cm, -cm])
                 moved = self.move(axis, direction)
             self.scan_env(exit_clause)
@@ -308,12 +315,12 @@ class TelloCV(object):
             0] / 2  # if object_center_x > FRAME_SIZE_x/2, you should move to the right
         yoffset = res['center'][1] - FRAME_SIZE[1] / 2
         # NEED TO TWEAK THE CM - OFFSET RATIO
-        self.move(vec_clockwise90_XY_plane(self.momentum_vec), xoffset/5)
-        self.move(Z, yoffset/5)  # y axis in frame = z axis in real world
+        self.move(self.X, xoffset/5)
+        self.move(self.Z, yoffset/5)  # y axis in frame = z axis in real world
 
         print("move forward until object is close enough")
         # move forward until object is close enough
-        cm = 10
+        cm = 40
         res = get_tracked_object()
         while res['area'] < 180000 and self.app.running:
             self.move(self.momentum_vec, cm)
