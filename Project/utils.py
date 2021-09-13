@@ -144,15 +144,13 @@ class CppCommunication(object):
                         if self.last_command == 'END':
                             received_end = True
                         # send command
-                        d = struct.pack('I', self.commands_to_cpp[self.last_command])
-                        conn.sendall(d)
-
+                        s.send(bytes(self.last_command, encoding='utf-8'))
                         # clear command pending event bit
                         self.command_pending.clear()
 
     def request_from_cpp(self, request):
         """API function to send requests"""
-        if request in self.commands_to_cpp.keys():
+        if 'TELLO' in request or request in self.commands_to_cpp:
             with self.lock_send_command:
                 self.last_command = request
                 self.command_pending.set()

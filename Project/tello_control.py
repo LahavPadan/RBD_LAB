@@ -17,14 +17,15 @@ class TelloCV(object):
 
     def __init__(self, app):
         self.app = app
+        """
         self.drone = djitellopy.Tello()
+        """
         self.speed = 10  # 10 cm/sec
         self._angle = 90  # drone facing forward = 90 degrees on the unit circle
 
         self.momentum_vec = np.array([0, 1, 0])  # 3D vector: (0, 1, 0)
         self.X, self.Y, self.Z = np.array([1, 0, 0]), np.array([0, 1, 0]), np.array([0, 0, 1])
 
-        self.slam_to_real_world_scale = 1
         self.slam_pose: np.array = np.array([])
         self.pointcloud = None
 
@@ -40,26 +41,13 @@ class TelloCV(object):
         # IM CREATING TON OF THREADS AND JOINING NONE
         Thread(target=self._init_drone).start()
 
-    def set_ack(self):
-        self.ack_accepted = True
-
     def _init_drone(self):
-
-        """
-        def calibrate_map_scale():
-            self.move(Z, 50)
-            # *OR* height_drone = 50
-            height_drone = self.drone.get_height()  # Get current height in cm
-            # get coordinates from slam
-            slam_height = self.app.request_from_cpp("listPose")[2]  # Z coordinate
-            print("slam_height is ", slam_height)
-            # calculate the real world scale
-            self.slam_to_real_world_scale = height_drone / slam_height
         """
         self.drone.connect()
         self.drone.streamon()
         self.drone.set_speed(self.speed)
         self.drone.takeoff()
+        """
         self.stay_in_air = Timer(1, self.move, args=[self.Z, 20 if TelloCV.auto_movement_bool else -20],
                                  kwargs={'just_stay_in_air': True})
         self.start_time_stay_in_air = time()
@@ -76,18 +64,17 @@ class TelloCV(object):
 
 
         print("Im trying to go left")
+        """
         self.move(self.X, -30)
+        """
 
         # from this point onwards, ORB_SLAM2 is initialized (but can lose localization)
-
-        # calibrate_map_scale()
-        """
-        self.slam_pose = np.array(self.app.request_from_cpp("listPose")) * self.slam_to_real_world_scale
+        self.slam_pose = np.array(self.app.request_from_cpp("listPose"))
         self.pointcloud = PointCloud(self.app)
 
         self.move_to_color_thread = Thread(target=self.move_to_color)
         self.move_to_color_thread.start()
-        """
+
     def end(self):
         print("[TELLO][END] Ending TelloCV...")
         # release any move authorization request
@@ -111,8 +98,13 @@ class TelloCV(object):
         print("About to join move_to_color")
         self.move_to_color_thread.join()
         print("move_to_color joined.")
+        """
         self.drone.land()
         self.drone.end()
+        """
+    def set_ack(self):
+        self.ack_accepted = True
+        print("[TELLO] ack passed")
 
     def _authorization_request(self, direction, cm):
         # this kind of sleeping in critical section is bad, the drone is completely idle here
@@ -180,8 +172,9 @@ class TelloCV(object):
         print("[TELLO][SCAN_ENV] done.")
 
     @_handle_stay_in_air
-    def move(self, vector: np.array, cm, just_stay_in_air = False, *args, **kwargs) -> bool:
+    def move(self, vector: np.array, cm, just_stay_in_air=False, *args, **kwargs) -> bool:
         """
+        :param just_stay_in_air: True if and only if this is a scheduled call whose purpose is to keep to the in air
         :param vector: (3D vector, normalized) direction to move.
         :param cm: magnitude of vector in cm.
         :return: True if and only if drone actually traveled.
@@ -192,6 +185,7 @@ class TelloCV(object):
         # change drone angle, then, check if safe to continue in that direction
         angle = calc_angle_XY_plane(self.momentum_vec, vector)
         self.__update_movement_vector(diff_angle=angle)
+        """
         if angle != 0:
             if angle > 0:
                 self.drone.rotate_counter_clockwise(angle)
@@ -200,8 +194,8 @@ class TelloCV(object):
             # wait for the drone to rotate
             # its fine to sleep in critical section cause drone is moving rather than idle
             sleep(3)
+        """
         print(f'[TELLO] rotating in angle of {angle}... ')
-
 
         X_movement = np.dot(vector, self.X) * self.X
         # redundant, the norm is the abs(dot)
@@ -232,16 +226,16 @@ class TelloCV(object):
                 """
                 if not self.app.running:
                     break
-
+                """
                 self.drone.move(movement, int(norm))
-
+                """
                 # wait for the drone to move
                 # sleep((norm / self.speed) + 1)
                 sleep(7)
 
         if not just_stay_in_air:
             # update pose variable
-            self.slam_pose = np.array(self.app.request_from_cpp("listPose")) * self.slam_to_real_world_scale
+            self.slam_pose = np.array(self.app.request_from_cpp("listPose"))
             print("self.slam_pose is ", self.slam_pose)
             # for the future: maybe track drone pose as given by commands throughout the program
         return True
