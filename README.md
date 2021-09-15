@@ -17,7 +17,8 @@
         * As long as it not found:
          
             * Use the map of features given by ORB_SLAM2. 
-            * Estimate obstacles nearby, with the observation that: Point in Map <----> Feature in frame <---->  Feature of some object <----> Part of an obstacle
+            * Estimate obstacles nearby, with the observation that: 
+            - Point in Map <----> Feature in frame <---->  Feature of some object <----> Part of an obstacle
             * Thus, go to the location nearby, such that it is the most vacant of map points
             * Scan enviroment for that object
 
