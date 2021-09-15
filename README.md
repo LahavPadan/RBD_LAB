@@ -15,9 +15,9 @@
       1.2.2. Estimate obstacles nearby, with the observation that:
       Point in Map <----> Feature in frame <---->  Feature of some object <----> Part of an obstacle
 
-      1.2.3. Thus, go to the location nearby, such that it is the most vacant of map points
+      1.2.3. Thus, go to the location nearby, such that it is the most vacant of map points.
 
-      1.2.4. Scan environment for your object
+      1.2.4. Scan environment for your object.
 ```
 ---
 ## Group Members
