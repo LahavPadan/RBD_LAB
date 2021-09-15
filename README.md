@@ -2,7 +2,7 @@
 - Project goal: program a drone to navigate in closed space.
 - Video illustration: 
 > Algorithm:
-calc
+calc.
 yes
 ---
 ## Group Members
