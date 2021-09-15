@@ -2,8 +2,8 @@
 - Project goal: program a drone to navigate in closed space.
 - Video illustration: 
 > Algorithm:
-> calc
-> yes
+calc
+yes
 ---
 ## Group Members
 - Reuven Veinblat
