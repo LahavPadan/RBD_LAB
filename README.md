@@ -7,10 +7,15 @@
 1. Attempt to find an object waypoint, i.e. an object of prominent color. We chose a red sweatshirt.
    1.1. Once found, approach that object until its close enough.
       1.2. As long as it not found: 
-      1.2.1. Use the map of features given by ORB_SLAM2. 
-      1.2.2. Estimate obstacles nearby, with the observation that: Point in Map <----> Feature in frame <---->  Feature of some object <----> Part of an obstacle
-      1.2.3. Thus, go to the location nearby, such that it is the most vacant of map points
-      1.2.4. Scan enviroment for that object
+      
+         1.2.1. Use the map of features given by ORB_SLAM2. 
+
+         1.2.2. Estimate obstacles nearby, with the observation that:
+         Point in Map <----> Feature in frame <---->  Feature of some object <----> Part of an obstacle
+
+         1.2.3. Thus, go to the location nearby, such that it is the most vacant of map points
+
+         1.2.4. Scan enviroment for that object
 ```
 
 * Attempt to find an object waypoint, i.e. an object of prominent color. We chose a red sweatshirt.
