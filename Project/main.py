@@ -1,29 +1,27 @@
-import getpass
 import os
 import time
 import cv2
 import numpy as np
-
 from tello_control import TelloCV
-from image_filters import init_control_gui, apply_hsv_filter, apply_edge_filter
-from face_recognition import FaceRec
 import utils
+
+add_ons_installed = True
+try:
+    import getpass
+    import HandTrackingModule
+    import VolumeHandControl
+    from image_filters import init_control_gui, apply_hsv_filter, apply_edge_filter
+    from face_recognition import FaceRec
+except ImportError:
+    add_ons_installed = False
+    print("clone add_ons branch to gain access to HandTrackingModule, VolumeHandControl, "
+          "image_filters and face_recognition")
+
 
 # INPUT_FORM: VIDEO/WEB-CAM/TELLO
 INPUT_FORM = 'TELLO'
 RUN_ORB_SLAM = True
 OUTPUT_FORM = 'WINDOW'
-
-
-# face_rec = FaceRec()
-def processFrame(frame):
-    output_frames = [
-        frame,
-        # face_rec.recognize(frame),
-        # apply_edge_filter(frame),
-        # apply_hsv_filter(frame)
-    ]
-    return frame, output_frames
 
 
 class App(utils.CppCommunication):
@@ -58,9 +56,12 @@ class App(utils.CppCommunication):
             self._tello = TelloCV(self)
 
         self.init_cap()
-        # ***DELETE THIS***
-        if INPUT_FORM == 'WEB-CAM':
-            self._tello = TelloCV(self)
+
+        if add_ons_installed:
+            self.face_rec = FaceRec()
+            # call your stuff here in different threads. for frames object pass:
+            # self.factory()
+            # pass arguments to thread by args=[LIST OF ARGUMENTS]
 
     def init_cap(self):
         if INPUT_FORM == 'VIDEO':
@@ -72,10 +73,6 @@ class App(utils.CppCommunication):
         if INPUT_FORM == 'WEB-CAM':
             self._cap = cv2.VideoCapture(0)
             self._cap.open(0)
-        """
-        if INPUT_FORM == 'TELLO':
-            self._cap = self._tello.drone.get_video_capture()
-        """
 
     def __framesGenerator(self):
         if INPUT_FORM == 'TELLO':
@@ -102,6 +99,17 @@ class App(utils.CppCommunication):
                 else:
                     break
 
+    def processFrame(self, frame):
+        output_frames = [
+            frame,
+        ]
+        if add_ons_installed:
+            frames = [self.face_rec.recognize(frame),
+                      apply_edge_filter(frame),
+                      apply_hsv_filter(frame)]
+            output_frames = output_frames + frames
+        return frame, output_frames
+
     def run(self):
         if INPUT_FORM not in ['WEB-CAM', 'VIDEO', 'TELLO']:
             print("ERROR: INPUT FORM not defined properly")
@@ -113,7 +121,7 @@ class App(utils.CppCommunication):
             cv2.namedWindow(f'Processed Feed of {INPUT_FORM.lower()}')  # create window to display processed feed
         frames = self.factory()
         for frame in frames:
-            output_frames = processFrame(frame)
+            output_frames = self.processFrame(frame)
             if OUTPUT_FORM == 'WINDOW':
                 if RUN_ORB_SLAM:
                     # https://stackoverflow.com/questions/21689365/python-3-typeerror-must-be-str-not-bytes-with-sys-stdout-write
@@ -142,15 +150,6 @@ class App(utils.CppCommunication):
         if INPUT_FORM == 'TELLO':
             self._tello.end()
 
-        # ***DELETE THIS***
-        if INPUT_FORM == 'WEB-CAM':
-            self._tello.end()
-
-        elif INPUT_FORM == 'WEB-CAM' or INPUT_FORM == 'VIDEO':
-            # self._cap.release()
-            print("IM here")
-
-        #self.stop_frames.set()
         self.can_stopListening.set()
         self.output_listener.join()
         print("output_listener joined.")
@@ -162,8 +161,6 @@ class App(utils.CppCommunication):
 
 
 if __name__ == "__main__":
-    # utils.generate_training_faces(subject_name=getpass.getuser())
-    # init_control_gui()
 
     if INPUT_FORM == 'VIDEO':
         input_video_path = '../data/Casino Royale Opening original.mp4'

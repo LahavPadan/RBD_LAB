@@ -10,7 +10,6 @@ from pynput import keyboard
 import socket
 import struct
 import ast
-from time import time
 
 # generators_factory imports
 import collections
@@ -85,11 +84,9 @@ class CppCommunication(object):
                 self.lock_running.release()
                 break
             self.lock_running.release()
-
             nextline = self.subproc.stdout.readline()
             if nextline == '' and self.subproc.poll() is not None:
                 break
-
             """
             # https://stackoverflow.com/questions/26598322/find-a-list-of-patterns-in-a-list-of-string-in-python
             if not any(q in nextline for q in self.queries_from_cpp):
@@ -106,7 +103,6 @@ class CppCommunication(object):
                     retrieval = nextline.split(query, 1)[1].rstrip()
                     self.request_from_stdout[query] = (retrieved, retrieval)
                     retrieved.set()
-
         # cleaning up
         print("Cleaning up requests1")
         while not self.can_stopListening.is_set():
@@ -143,13 +139,14 @@ class CppCommunication(object):
                         if self.last_command == 'END':
                             received_end = True
                         # send command
-                        s.send(bytes(self.last_command, encoding='utf-8'))
+                        d = struct.pack('I', self.commands_to_cpp[self.last_command])
+                        conn.sendall(d)
                         # clear command pending event bit
                         self.command_pending.clear()
 
     def request_from_cpp(self, request):
         """API function to send requests"""
-        if 'TELLO' in request or request in self.commands_to_cpp:
+        if request in self.commands_to_cpp.keys():
             with self.lock_send_command:
                 self.last_command = request
                 self.command_pending.set()

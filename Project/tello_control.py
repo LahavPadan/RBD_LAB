@@ -7,10 +7,7 @@ from pointcloud import PointCloud
 from utils import find_relative_3D_space
 import cv2
 import color_tracker
-import door_detection
 import queue
-
-from multiprocessing import Process
 
 FRAME_SIZE = (640, 480)
 
@@ -236,11 +233,6 @@ class TelloCV(object):
         tracking_thread = Thread(target=tracker.track, args=[self.app.factory(), [155, 103, 82], [178, 255, 255]],
                                  kwargs={'min_contour_area': 2000, 'max_track_point_distance': 1000})
         tracking_thread.start()
-        """
-        door_detector = door_detection.DoorDetector(frames=self.app.factory())
-        door_detector_process = Process(target=door_detector.run)
-        door_detector_process.start()
-        """
 
         def get_tracked_object():
             obj = None
@@ -251,11 +243,6 @@ class TelloCV(object):
                     x, y, x_w, y_h = tracker.tracked_objects[-1].last_bbox
                     width = (x_w - x)
                     height = (y_h - y)
-                    """
-                    box = door_detector.last_bbox
-                    print(f'box is {box}')
-                    x, y, width, height = box[0], box[1], box[2], box[3]
-                    """
                     area = width * height
                     center = x + width / 2, y + height / 2  #ITS THE CENTER IN FRAME NOT NECESSARILY IN REAL WORLD
                     obj = {'area': area, 'center': center}
@@ -296,10 +283,8 @@ class TelloCV(object):
 
 
         print("[TELLO][TRACKER] Stopping tracker...")
-        """
         tracker.stop_tracking()
         tracking_thread.join()
-        """
         print("[TELLO][TRACKER] Tracker thread joined.")
 
     def tracker_callback(self, t: color_tracker.ColorTracker):
@@ -319,24 +304,3 @@ class TelloCV(object):
                     2, cv2.LINE_AA)
         cv2.imshow("debug", frame)
         cv2.waitKey(1)
-
-        """
-            def _handle_stay_in_air(function):
-                def wrapper(self, *args, **kwargs):
-                    with self.move_cv:  # lock also prevents scheduled call and actual call, to enter 'move' simultaneously
-
-                        # call wrapped function
-                        res = function(self, *args, **kwargs)
-
-                        # schedule next
-                        if self.need_stay_in_air and self.stay_in_air.finished:
-                            print("Scheduling next: ", time() - self.start_time_stay_in_air)
-                            TelloCV.auto_movement_bool = not TelloCV.auto_movement_bool
-                            self.stay_in_air = Timer(11, self.move, args=[self.Z, 20 if TelloCV.auto_movement_bool else -20],
-                                                     kwargs={'just_stay_in_air': True})
-                            self.start_time_stay_in_air = time()
-                            self.stay_in_air.start()
-
-                    return res
-                return wrapper
-        """
