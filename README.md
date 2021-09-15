@@ -1,6 +1,6 @@
 # RBD-LAB Drone Project
 - Project goal: program a drone to navigate in closed space.
-- Video illustration: https://www.youtube.com/watch?v=c8Rfb80J3IE
+- [Video illustration](https://www.youtube.com/watch?v=c8Rfb80J3IE)
 
 ## Algorithm:
 ```
