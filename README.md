@@ -8,7 +8,7 @@
 
    1.1. Once found, approach that object until its close enough.
       
-   1.2. As long as it not found: 
+   1.2. As long as it is not found: 
 
       1.2.1. Use the map of features given by ORB_SLAM2. 
 
