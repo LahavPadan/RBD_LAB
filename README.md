@@ -1,7 +1,8 @@
 # RBD-LAB Drone Project
 - Project goal: program a drone to navigate in closed space.
 - Video illustration: 
-> Algorithm:
+
+## Algorithm:
 1. Attempt to find an object waypoint, i.e. an object of prominent color. We chose a red sweatshirt.
     1.1. Once found, approach that object until its close enough.
     1.2. As long as it not found: 
