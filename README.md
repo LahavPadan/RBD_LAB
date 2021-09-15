@@ -17,7 +17,7 @@
 
       1.2.3. Thus, go to the location nearby, such that it is the most vacant of map points
 
-      1.2.4. Scan enviroment for that object
+      1.2.4. Scan environment for that object
 ```
 ---
 ## Group Members
