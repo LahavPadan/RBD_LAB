@@ -11,8 +11,8 @@
       1.2.3. Thus, go to the location nearby, such that it is the most vacant of map points
       1.2.4. Scan enviroment for that object
 
-1. Attempt to find an object waypoint, i.e. an object of prominent color. We chose a red sweatshirt.
-    1. Once found, approach that object until its close enough.
+* Attempt to find an object waypoint, i.e. an object of prominent color. We chose a red sweatshirt.
+    * Once found, approach that object until its close enough.
         1. As long as it not found: 
         2. 
 2. Which is numbered
