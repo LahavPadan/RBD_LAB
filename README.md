@@ -5,7 +5,9 @@
 ## Algorithm:
 ```
 1. Attempt to find an object waypoint, i.e. an object of prominent color. We chose a red sweatshirt.
+
    1.1. Once found, approach that object until its close enough.
+      
       1.2. As long as it not found: 
       
          1.2.1. Use the map of features given by ORB_SLAM2. 
