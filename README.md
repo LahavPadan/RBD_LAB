@@ -30,8 +30,9 @@
 - [_Color-Tracker_](https://github.com/gaborvecsei/Color-Tracker)
 ---
 ## Dependencies
-
+```
 git clone https://github.com/LahavPadan/ORB_SLAM2
+```
 ```
 pip install opencv-python
 pip install numpy
