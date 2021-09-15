@@ -12,6 +12,7 @@
       1.2.4. Scan enviroment for that object
 
 * Attempt to find an object waypoint, i.e. an object of prominent color. We chose a red sweatshirt.
+
     * Once found, approach that object until its close enough.
         * As long as it not found: 
             * Use the map of features given by ORB_SLAM2. 
