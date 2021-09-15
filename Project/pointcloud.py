@@ -93,12 +93,13 @@ class PointCloud(object):
             # calculate area of triangle
             area_det_matrix = np.hstack((tri, np.ones((3, 1))))
             area = 0.5 * np.abs(np.linalg.det(area_det_matrix))
+            # print(f'some tri area is {area}')
             # evaluate how "close" this triangle is
             centroid = tri_centroid(tri)
             centroid /= np.linalg.norm(centroid)  # normalize vector
             cosine_of_angle = np.dot(centroid, momentum_vec[:-1])
             """Note: the scale factor (in case 1000) affects how this heuristic performs"""
-            return (0.1 * cosine_of_angle + 2) * area
+            return (0.3 * cosine_of_angle + 2) * area
 
         point = point * self.scale_factor
         print("[POINTCLOUD][eval_movement_vector] evaluating movement from ", point)
@@ -113,31 +114,17 @@ class PointCloud(object):
         with self._lock_points:
             all_nns = [self._points[idx] for idx in nn_indices]
         all_nns = np.array(*all_nns)
-        """
-        cost_map = {}
-        with self._lock_kdTree:
-            all_nn_indices = self._kdTree.query_radius([*local_map.values()], r=30)  # NNs within distance of 30 of point
-        all_nns = [[points_numpy[idx] for idx in nn_indices] for nn_indices in all_nn_indices]
-
-        print("all nns: ", all_nns)
-        for nns in all_nns:
-            print(nns)
-
-        for i, key in enumerate(local_map.keys()):
-            print(key)
-            print(local_map[key])
-            cost_map[key] = -len(all_nns[i])
-            print(cost_map[key])
-        """
         # https://gamedev.stackexchange.com/questions/95869/find-the-largest-empty-space-inside-a-cube-populated-with-a-point-cloud
         # https://stackoverflow.com/questions/62608710/delaunay-triangulation-simplices-scipy
         try:
             triangles = Delaunay(all_nns, qhull_options="QJ")
+        except ValueError:
+            return momentum_vec
         except scipy.spatial.qhull.QhullError:
             while True:
                 self._lock_points.acquire()
                 if len(self._points) >= 5:
-                    break
+                    return momentum_vec
                 self._lock_points.release()
                 if not self._app.running:
                     return point
@@ -156,6 +143,8 @@ class PointCloud(object):
         tri = max(all_nns[triangles.simplices], key=heuristic)
         centroid = tri_centroid(tri)
         print("centroid: ", centroid)
+        print("A few samples: ", heuristic(all_nns[triangles.simplices[0]]), heuristic(all_nns[triangles.simplices[1]]),
+              heuristic(all_nns[triangles.simplices[2]]))
         """
         plt.triplot(all_nns[:, 0], all_nns[:, 1], triangles.simplices)
         plt.plot(all_nns[:, 0], all_nns[:, 1], '.k')
@@ -166,8 +155,11 @@ class PointCloud(object):
         movement_vector = np.subtract(centroid, point)  # vector subtraction
         print("after vector subtraction: ", movement_vector)
         movement_vector = np.append(movement_vector, 0)  # make it a 3D vector by adding dummy z coordinate
-        movement_vector /= np.linalg.norm(movement_vector)  # normalize vector
-        return movement_vector
-
+        norm = np.linalg.norm(movement_vector)
+        if norm > 0:
+            movement_vector /= norm  # normalize vector
+            return movement_vector
+        else:
+            return momentum_vec
 
 

@@ -2,7 +2,6 @@ import os
 import sys
 import cv2
 import numpy as np
-from itertools import tee, islice
 
 # CppCommunication imports
 import subprocess
@@ -335,7 +334,6 @@ def calc_angle_XY_plane(vec1: np.array, vec2: np.array) -> int:
 def find_relative_3D_space(Y: np.array) -> np.array:
     rotation_mat = np.array([[0, 1],
                              [-1, 0]])
-    print("rotation mat shape: ", rotation_mat.shape)
     rotated_vec = np.dot(rotation_mat, Y[:-1])
     X = np.append(rotated_vec, 0)  # make it a 3D vector
     Z = np.array([0, 0, 1])

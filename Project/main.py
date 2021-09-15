@@ -1,7 +1,6 @@
 import getpass
 import os
 import time
-from threading import Event
 import cv2
 import numpy as np
 
@@ -9,9 +8,6 @@ from tello_control import TelloCV
 from image_filters import init_control_gui, apply_hsv_filter, apply_edge_filter
 from face_recognition import FaceRec
 import utils
-import pointcloud
-
-import color_tracker
 
 # INPUT_FORM: VIDEO/WEB-CAM/TELLO
 INPUT_FORM = 'TELLO'
@@ -33,7 +29,8 @@ def processFrame(frame):
 class App(utils.CppCommunication):
     def __init__(self):
         self.controls = {
-            's': lambda: self._tello.set_ack(),
+            's': lambda: self._tello.ack_accepted.set(),
+            't': lambda: self._tello.submit_action(action_str="takeoff", args=None, blocking=False)
         }
         self.commands_to_cpp = {
             "END": 1,
@@ -64,6 +61,7 @@ class App(utils.CppCommunication):
         # ***DELETE THIS***
         if INPUT_FORM == 'WEB-CAM':
             self._tello = TelloCV(self)
+
     def init_cap(self):
         if INPUT_FORM == 'VIDEO':
             if self._input_video_path is None:
@@ -81,14 +79,6 @@ class App(utils.CppCommunication):
 
     def __framesGenerator(self):
         if INPUT_FORM == 'TELLO':
-            """
-            for packet in self._tello.container.demux((self._tello.vid_stream,)):
-                for frame in packet.decode():
-                    # convert frame to opencv image
-                    frame = cv2.cvtColor(np.array(
-                        frame.to_image()), cv2.COLOR_RGB2BGR)
-                    yield frame
-            """
             frame_obj = self._tello.drone.get_frame_read()
             frame = frame_obj.frame
             frame = cv2.resize(frame, (640, 480))
@@ -169,6 +159,7 @@ class App(utils.CppCommunication):
         # no need to join key_listener
         # as listener is joined once we return False from on_press
         # see on_press for source link
+
 
 if __name__ == "__main__":
     # utils.generate_training_faces(subject_name=getpass.getuser())

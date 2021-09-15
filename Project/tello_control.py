@@ -1,19 +1,21 @@
 import djitellopy
-from threading import Event, Thread, Timer, Lock, Condition
-from time import sleep, time
-import random
+from threading import Thread, Event
+from time import sleep
 import numpy as np
 from math import cos, sin, radians
 from pointcloud import PointCloud
-from utils import calc_angle_XY_plane, find_relative_3D_space
+from utils import find_relative_3D_space
 import cv2
 import color_tracker
+import door_detection
+import queue
+
+from multiprocessing import Process
 
 FRAME_SIZE = (640, 480)
 
 
 class TelloCV(object):
-    auto_movement_bool = True
 
     def __init__(self, app):
         self.app = app
@@ -21,134 +23,119 @@ class TelloCV(object):
         self.speed = 10  # 10 cm/sec
         self._angle = 90  # drone facing forward = 90 degrees on the unit circle
 
+        self.q = queue.Queue()
+
         self.momentum_vec = np.array([0, 1, 0])  # 3D vector: (0, 1, 0)
         self.X, self.Y, self.Z = np.array([1, 0, 0]), np.array([0, 1, 0]), np.array([0, 0, 1])
 
-        self.slam_to_real_world_scale = 1
         self.slam_pose: np.array = np.array([])
         self.pointcloud = None
 
-        self.ack_accepted = False  # signify acknowledgement from user after drone sends an authorization request
+        self.ack_accepted = Event()  # signify acknowledgement from user after drone sends an authorization request
 
-        self.move_cv = Condition()
-        self.move_to_color_thread = None
-        self.need_stay_in_air = True
-        self.stay_in_air = None
-
-        self.start_time_stay_in_air = 0
+        self.move_to_obj_thread = None
 
         # IM CREATING TON OF THREADS AND JOINING NONE
         Thread(target=self._init_drone).start()
 
-    def set_ack(self):
-        self.ack_accepted = True
+    def submit_action(self, action_str, args, blocking=False):
+        done_indicator = Event()
+        self.q.put( {'action_str': action_str, 'args': args, 'done_indicator': done_indicator} )
+        if blocking:
+            done_indicator.wait()
+
+    def worker(self):
+        i = 0
+        staying_in_air = ['up', 'down']
+        print("worker in loop")
+        while self.app.running:
+            try:
+                item = self.q.get(block=False)
+                print(f'item = {item}')
+                try:
+
+                    getattr(self.drone, item['action_str'])(*item['args'])
+
+                    pass
+                except AttributeError:
+                    print("Invalid argument: Cannot execute passed function")
+                    continue
+                except KeyError:
+                    print("Please submit to queue via submit_action method")
+                    continue
+            except queue.Empty:
+                print("IM HERE, QUEUE IS EMPTY")
+                item = None
+
+                self.drone.move(staying_in_air[i], 20)
+
+                i = (i + 1) % 2
+
+            # wait for the action to be executed
+            sleep(3)
+            if isinstance(item, dict):
+                print("Setting item")
+                item['done_indicator'].set()
 
     def _init_drone(self):
 
-        """
-        def calibrate_map_scale():
-            self.move(Z, 50)
-            # *OR* height_drone = 50
-            height_drone = self.drone.get_height()  # Get current height in cm
-            # get coordinates from slam
-            slam_height = self.app.request_from_cpp("listPose")[2]  # Z coordinate
-            print("slam_height is ", slam_height)
-            # calculate the real world scale
-            self.slam_to_real_world_scale = height_drone / slam_height
-        """
         self.drone.connect()
         self.drone.streamon()
+        print("Battery percentage: ", self.drone.get_battery())
         self.drone.set_speed(self.speed)
         self.drone.takeoff()
-        self.stay_in_air = Timer(1, self.move, args=[self.Z, 20 if TelloCV.auto_movement_bool else -20],
-                                 kwargs={'just_stay_in_air': True})
-        self.start_time_stay_in_air = time()
-        self.stay_in_air.start()
 
-        # Assuming that Esc will be pressed after ORB_SLAM2 **opens** - cause request_from_cpp is blocking operation
+        # start listening to commands
+        Thread(target=self.worker).start()
+        # Drone Camera is open. wait for ORB_SLAM2 to initialize
 
         while not self.app.request_from_cpp("isSlamInitialized") and self.app.running:
+            # Assuming that Esc will be pressed after ORB_SLAM2 - opens - (request_from_cpp is blocking operation)
             print("[TELLO][INIT_DRONE] Waiting for ORB_SLAM2 to initialize...")
-            # scan_env handles self.app.running check internally
-            self.scan_env(exit_clause=lambda: self.app.request_from_cpp("isSlamInitialized"))
-            # notice that after scan, the angle can be everything. Because the exit clause can take place at any point
         print("[TELLO][INIT_DRONE] ORB_SLAM2 initialized.")
-
-
-        print("Im trying to go left")
-        self.move(self.X, -30)
-
+        
         # from this point onwards, ORB_SLAM2 is initialized (but can lose localization)
+        Thread(target=self.wall_avoidance).start()
 
-        # calibrate_map_scale()
-        """
-        self.slam_pose = np.array(self.app.request_from_cpp("listPose")) * self.slam_to_real_world_scale
+        self.slam_pose = np.array(self.app.request_from_cpp("listPose"))
         self.pointcloud = PointCloud(self.app)
 
-        self.move_to_color_thread = Thread(target=self.move_to_color)
-        self.move_to_color_thread.start()
-        """
+        self.move_to_obj_thread = Thread(target=self.move_to_obj)
+        self.move_to_obj_thread.start()
+
+        # complete 360 degrees without exit clause
+        self.scan_env(blocking=False)
+
+    def wall_avoidance(self):
+        print("Starting wall avoidance")
+        while self.app.running:
+            if self.app.request_from_cpp("isWall"):
+                print("[TELLO][wall_avoidance] attempting to turn away from wall...")
+                self.scan_env(exit_clause=lambda: not self.app.request_from_cpp("isWall"), blocking=True)
+
+
     def end(self):
         print("[TELLO][END] Ending TelloCV...")
         # release any move authorization request
-        self.ack_accepted = True  # the bit stays turned on
-
-        print("[TELLO][END] Ending stay_in_air...")
-        self.need_stay_in_air = False
-        self.stay_in_air.cancel()
-        while self.stay_in_air is not None:
-            try:
-                # cancel previous schedule
-                self.stay_in_air.cancel()
-                self.stay_in_air.join()
-                self.stay_in_air = None
-            except AttributeError:
-                pass
-        print("[TELLO][END] stay_in_air ended.")
+        self.ack_accepted.set()  # the bit stays turned on
 
         self.pointcloud.end()
 
-        print("About to join move_to_color")
-        self.move_to_color_thread.join()
-        print("move_to_color joined.")
+        print("About to join move_to_obj")
+        self.move_to_obj_thread.join()
+        print("move_to_obj joined.")
         self.drone.land()
         self.drone.end()
 
     def _authorization_request(self, direction, cm):
-        # this kind of sleeping in critical section is bad, the drone is completely idle here
         if self.app.running:
             # clear previous/accidental authorization bit
-            self.ack_accepted = False
+            self.ack_accepted.clear()
         while self.app.running:
             print(f'[TELLO][authorization request] {direction}, {cm} cm. Press s to move')
-            self.move_cv.wait_for(predicate=lambda: self.ack_accepted, timeout=15)  # wait about a quarter of a minute
-            if self.ack_accepted:
+            accepted = self.ack_accepted.wait(15)  # wait about a quarter of a minute
+            if accepted:
                 break
-        """
-        if not self.app.running:
-            self.ack.set()  # release all waiting threads if app is not running
-        """
-    def _handle_stay_in_air(function):
-        def wrapper(self, *args, **kwargs):
-            with self.move_cv:  # lock also prevents scheduled call and actual call, to enter 'move' simultaneously
-                print("time passed since last schedule: ", time() - self.start_time_stay_in_air)
-                try:
-                    # cancel previous schedule
-                    self.stay_in_air.cancel()
-                except AttributeError:
-                    pass
-                # call wrapped function
-                res = function(self, *args, **kwargs)
-
-                # schedule next
-                if self.need_stay_in_air:
-                    TelloCV.auto_movement_bool = not TelloCV.auto_movement_bool
-                    self.stay_in_air = Timer(8, self.move, args=[self.Z, 20 if TelloCV.auto_movement_bool else -20],
-                                             kwargs={'just_stay_in_air': True})
-                    self.start_time_stay_in_air = time()
-                    self.stay_in_air.start()
-            return res
-        return wrapper
 
     def __update_movement_vector(self, diff_angle):
         # self._angle is only used inside cosine and sine, thus, no problem that self._angle will become
@@ -158,29 +145,26 @@ class TelloCV(object):
         self.momentum_vec = np.append(self.momentum_vec, 0)  # make it a 3D vector by adding dummy z coordinate
         self.X, self.Y, self.Z = find_relative_3D_space(self.momentum_vec)
 
-    @_handle_stay_in_air
-    def scan_env(self, exit_clause, *args, **kwargs):
+    def scan_env(self, pause_sec=0, exit_clause=(lambda: False), blocking=True):
         print("[TELLO][SCAN_ENV] scanning environment...")
-        degree_per_iteration = 15
+        degree_per_iteration = 40
         for _ in range(0, 360, degree_per_iteration):
 
             if exit_clause() or not self.app.running:
                 break
 
             self.__update_movement_vector(diff_angle=degree_per_iteration)
+            self.submit_action(action_str="rotate_clockwise", args=[degree_per_iteration], blocking=blocking)
 
-            self.drone.rotate_clockwise(degree_per_iteration)
-
-            # wait for drone to rotate
-            sleep(4)
             # wait for ORB_SLAM2 to initialize and scan
-            self.move_cv.wait(timeout=10)
+            if pause_sec:
+                # self.move_cv.wait(timeout=pause_sec)
+                sleep(pause_sec)
             # normally this kind off sleeping in critical section is bad
 
         print("[TELLO][SCAN_ENV] done.")
 
-    @_handle_stay_in_air
-    def move(self, vector: np.array, cm, just_stay_in_air = False, *args, **kwargs) -> bool:
+    def move(self, vector: np.array, cm, blocking=True) -> bool:
         """
         :param vector: (3D vector, normalized) direction to move.
         :param cm: magnitude of vector in cm.
@@ -188,77 +172,49 @@ class TelloCV(object):
         """
         vector = vector * cm  # it also switches vector-entries-sign if cm < 0
         cm = abs(cm)
-        print(f'[TELLO][MOVE] Method was called with; vector: {vector}, cm: {cm}')
-        # change drone angle, then, check if safe to continue in that direction
-        angle = calc_angle_XY_plane(self.momentum_vec, vector)
-        self.__update_movement_vector(diff_angle=angle)
-        if angle != 0:
-            if angle > 0:
-                self.drone.rotate_counter_clockwise(angle)
-            elif angle < 0:
-                self.drone.rotate_clockwise(-1 * angle)
-            # wait for the drone to rotate
-            # its fine to sleep in critical section cause drone is moving rather than idle
-            sleep(3)
-        print(f'[TELLO] rotating in angle of {angle}... ')
-
 
         X_movement = np.dot(vector, self.X) * self.X
         # redundant, the norm is the abs(dot)
-        X_norm = np.linalg.norm(X_movement)
+        X_norm = round(np.linalg.norm(X_movement), -1)  # round to closest multiple of 10 (can't move less than 10 cm)
         Y_movement = np.dot(vector, self.Y) * self.Y
-        Y_norm = np.linalg.norm(Y_movement)
+        Y_norm = round(np.linalg.norm(Y_movement), -1)
         Z_movement = np.dot(vector, self.Z) * self.Z
-        Z_norm = np.linalg.norm(Z_movement)
+        Z_norm = round(np.linalg.norm(Z_movement), -1)
 
-        X_movement = 'right' if X_movement[0] > 0 else 'left'
-        Y_movement = 'forward' if Y_movement[1] > 0 else 'back'
-        Z_movement = 'up' if Z_movement[2] > 0 else 'down'
+        X_movement = 'right' if X_movement[0]/self.X[0] > 0 else 'left'
+        Y_movement = 'forward' if Y_movement[1]/self.Y[1] > 0 else 'back'
+        Z_movement = 'up' if Z_movement[2]/self.Z[2] > 0 else 'down'
 
-        if not just_stay_in_air:
-            isWall = self.app.request_from_cpp("isWall")
-            print("isWall= ", isWall)
-            if isWall:
-                return False
+        while self.app.request_from_cpp("isWall"):
+            pass
+
         for axis in ["X_", "Y_", "Z_"]:
             # https://stackoverflow.com/questions/9437726/how-to-get-the-value-of-a-variable-given-its-name-in-a-string
             movement = locals()[axis + "movement"]
             norm = locals()[axis + "norm"]
-            # minimum argument for move function is 10
-            if norm > 10:
-                """
-                if not just_stay_in_air:
-                    self._authorization_request(movement, norm)
-                """
+            if norm > 0:
+                if norm == 10:
+                    norm = norm + 1  # 10 is threshold, need to get above that
+
+                self._authorization_request(movement, int(norm))
                 if not self.app.running:
                     break
+                self.submit_action(action_str="move_"+movement, args=[int(norm)], blocking=blocking)
+                print("Aware that action is done")
 
-                self.drone.move(movement, int(norm))
-
-                # wait for the drone to move
-                # sleep((norm / self.speed) + 1)
-                sleep(7)
-
-        if not just_stay_in_air:
-            # update pose variable
-            self.slam_pose = np.array(self.app.request_from_cpp("listPose")) * self.slam_to_real_world_scale
-            print("self.slam_pose is ", self.slam_pose)
-            # for the future: maybe track drone pose as given by commands throughout the program
+        # update pose variable
+        self.slam_pose = np.array(self.app.request_from_cpp("listPose"))
+        print("self.slam_pose is ", self.slam_pose)
+        # for the future: maybe track drone pose as given by commands throughout the program
         return True
 
-    def wander_around(self, exit_clause):
+    def wander_around(self, exit_clause=(lambda: False)):
         # point = 0.3, 0.3
-        while not exit_clause() and self.app.running:
+        while not (exit_clause() and not self.app.request_from_cpp("isWall")) and self.app.running:
             print("[TELLO][WANDER_AROUND] searching where to go...")
             cm = 40
             moved = self.move(self.pointcloud.eval_movement_vector(self.slam_pose, self.momentum_vec), cm)
-            while self.app.running and not moved:
-                print("[TELLO][WANDER_AROUND] attempting to move away from wall...")
-                # move away from wall, choose randomly another target to go to
-                axis = random.choice([self.X, self.Y])
-                direction = random.choice([cm, -cm])
-                moved = self.move(axis, direction)
-            self.scan_env(exit_clause)
+            self.scan_env(pause_sec=3, exit_clause=exit_clause)
 
     """
     the hue range in
@@ -271,7 +227,8 @@ class TelloCV(object):
     upper_blue = (130, 255, 255)
     """
 
-    def move_to_color(self):
+    def move_to_obj(self):
+
         tracker = color_tracker.ColorTracker(max_nb_of_objects=1, max_nb_of_points=20, debug=True)
         tracker.set_tracking_callback(self.tracker_callback)
         # Define your custom Lower and Upper HSV values
@@ -279,6 +236,11 @@ class TelloCV(object):
         tracking_thread = Thread(target=tracker.track, args=[self.app.factory(), [155, 103, 82], [178, 255, 255]],
                                  kwargs={'min_contour_area': 2000, 'max_track_point_distance': 1000})
         tracking_thread.start()
+        """
+        door_detector = door_detection.DoorDetector(frames=self.app.factory())
+        door_detector_process = Process(target=door_detector.run)
+        door_detector_process.start()
+        """
 
         def get_tracked_object():
             obj = None
@@ -289,16 +251,21 @@ class TelloCV(object):
                     x, y, x_w, y_h = tracker.tracked_objects[-1].last_bbox
                     width = (x_w - x)
                     height = (y_h - y)
+                    """
+                    box = door_detector.last_bbox
+                    print(f'box is {box}')
+                    x, y, width, height = box[0], box[1], box[2], box[3]
+                    """
                     area = width * height
-                    center = x + width / 2, y + height / 2  # ABOUT THIS ONE IM NOT TOO SURE - ITS THE CENTER IN FRAME
-                    # NOT NECESSARILY IN REAL WORLD
-                    if area > 2000:  # filter-out false positives
-                        obj = {'area': area, 'center': center}
-                        return True
-                except IndexError:
+                    center = x + width / 2, y + height / 2  #ITS THE CENTER IN FRAME NOT NECESSARILY IN REAL WORLD
+                    obj = {'area': area, 'center': center}
+                    return True
+                except (AttributeError, TypeError, IndexError):
                     pass
                 return False
 
+            # wait for tracking to start
+            sleep(30)
             self.wander_around(exit_clause=is_object_found)
             if not self.app.running:
                 print("Returning that dummy object found dict")
@@ -311,24 +278,28 @@ class TelloCV(object):
         print(f"[TELLO][TRACKER] OBJECT FOUND; center:{res['center']}, area:{res['area']}."
               f" Frame-center is: {(FRAME_SIZE[0] / 2, FRAME_SIZE[1] / 2)}")
         # repose the drone to face tracked object
-        xoffset = res['center'][0] - FRAME_SIZE[
-            0] / 2  # if object_center_x > FRAME_SIZE_x/2, you should move to the right
-        yoffset = res['center'][1] - FRAME_SIZE[1] / 2
+        xoffset = res['center'][0] - (FRAME_SIZE[0] / 2) # if object_center_x > FRAME_SIZE_x/2, you should move to the right
+        yoffset = res['center'][1] - (FRAME_SIZE[1] / 2)
         # NEED TO TWEAK THE CM - OFFSET RATIO
+        print("First call")
         self.move(self.X, xoffset/5)
+        print("Second call")
         self.move(self.Z, yoffset/5)  # y axis in frame = z axis in real world
 
         print("move forward until object is close enough")
         # move forward until object is close enough
         cm = 40
         res = get_tracked_object()
-        while res['area'] < 180000 and self.app.running:
+        while res['area'] < 60000 and self.app.running:
             self.move(self.momentum_vec, cm)
             res = get_tracked_object()
 
+
         print("[TELLO][TRACKER] Stopping tracker...")
+        """
         tracker.stop_tracking()
         tracking_thread.join()
+        """
         print("[TELLO][TRACKER] Tracker thread joined.")
 
     def tracker_callback(self, t: color_tracker.ColorTracker):
@@ -348,3 +319,24 @@ class TelloCV(object):
                     2, cv2.LINE_AA)
         cv2.imshow("debug", frame)
         cv2.waitKey(1)
+
+        """
+            def _handle_stay_in_air(function):
+                def wrapper(self, *args, **kwargs):
+                    with self.move_cv:  # lock also prevents scheduled call and actual call, to enter 'move' simultaneously
+
+                        # call wrapped function
+                        res = function(self, *args, **kwargs)
+
+                        # schedule next
+                        if self.need_stay_in_air and self.stay_in_air.finished:
+                            print("Scheduling next: ", time() - self.start_time_stay_in_air)
+                            TelloCV.auto_movement_bool = not TelloCV.auto_movement_bool
+                            self.stay_in_air = Timer(11, self.move, args=[self.Z, 20 if TelloCV.auto_movement_bool else -20],
+                                                     kwargs={'just_stay_in_air': True})
+                            self.start_time_stay_in_air = time()
+                            self.stay_in_air.start()
+
+                    return res
+                return wrapper
+        """
