@@ -7,6 +7,10 @@
 - Daniel Rispler
 - Lahav Padan
 ---
+## External Projects Used
+- [_cpp-python-sockets_](https://github.com/johnathanchiu/cpp-python-sockets)
+- [_Color-Tracker_](https://github.com/gaborvecsei/Color-Tracker)
+---
 ## Dependencies
 ```
 pip install opencv-python
@@ -20,6 +24,4 @@ pip install scipy
 pip install pandas
 pip install pytest
 ```
-## External Projects Used
-- [_cpp-python-sockets_](https://github.com/johnathanchiu/cpp-python-sockets)
-- [_Color-Tracker_](https://github.com/gaborvecsei/Color-Tracker)
+
