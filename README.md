@@ -26,4 +26,4 @@ pip install pytest
 ```
 
 ## Requirements
-- ORB_SLAM2 & Project under ```/home/$USER/```
+- ORB_SLAM2 & Project are found under ```/home/$USER/```
