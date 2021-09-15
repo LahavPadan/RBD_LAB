@@ -10,6 +10,12 @@
       1.2.2. Estimate obstacles nearby, with the observation that: Point in Map <----> Feature in frame <---->  Feature of some object <----> Part of an obstacle
       1.2.3. Thus, go to the location nearby, such that it is the most vacant of map points
       1.2.4. Scan enviroment for that object
+
+1. A numbered list
+    1. A nested numbered list
+    2. Which is numbered
+2. Which is numbered
+
 ---
 ## Group Members
 - Reuven Veinblat
