@@ -25,3 +25,5 @@ pip install pandas
 pip install pytest
 ```
 
+## Requirements
+- ORB_SLAM2 & Project under /home/$USER/
