@@ -7,7 +7,7 @@ from pointcloud import PointCloud
 from utils import find_relative_3D_space, round_up
 import cv2
 import color_tracker
-import queue
+from queue import Queue, Empty
 
 FRAME_SIZE = (640, 480)
 
@@ -20,7 +20,7 @@ class TelloCV(object):
         self.speed = 10  # 10 cm/sec
         self._angle = 90  # drone facing forward = 90 degrees on the unit circle
 
-        self.q = queue.Queue()
+        self.q = Queue()
 
         self.momentum_vec = np.array([0, 1, 0])  # 3D vector: (0, 1, 0)
         self.X, self.Y, self.Z = np.array([1, 0, 0]), np.array([0, 1, 0]), np.array([0, 0, 1])
@@ -48,28 +48,22 @@ class TelloCV(object):
         while self.app.running:
             try:
                 item = self.q.get(block=False)
+            except Exception:
+                # for some reason, sometimes queue.Empty doesn't catch that exception
+                print("QUEUE IS EMPTY")
+                item = None
+                self.drone.move(staying_in_air[i], 20)
+                i = (i + 1) % 2
+            else:
                 print(f'item = {item}')
                 try:
-
                     getattr(self.drone, item['action_str'])(*item['args'])
-
                 except AttributeError:
                     print("Invalid argument: Cannot execute passed function")
                     continue
                 except KeyError:
                     print("Please submit to queue via submit_action method")
                     continue
-            except queue.Empty:
-                print("QUEUE IS EMPTY")
-                item = None
-
-                self.drone.move(staying_in_air[i], 20)
-
-                i = (i + 1) % 2
-
-            # sometimes _queue.Empty exception from the internals of queue module is not caught
-            except Exception:
-                continue
 
             # wait for the action to be executed
             sleep(3)
@@ -95,8 +89,9 @@ class TelloCV(object):
         print("[TELLO][INIT_DRONE] ORB_SLAM2 initialized.")
         
         # from this point onwards, ORB_SLAM2 is initialized (but can lose localization)
+        """
         Thread(target=self.wall_avoidance).start()
-
+        """
         self.slam_pose = np.array(self.app.request_from_cpp("listPose"))
         self.pointcloud = PointCloud(self.app)
 
@@ -209,6 +204,7 @@ class TelloCV(object):
         while not (exit_clause() and not self.app.request_from_cpp("isWall")) and self.app.running:
             print("[TELLO][WANDER_AROUND] searching where to go...")
             cm = 40
+            self.slam_pose = np.array(self.app.request_from_cpp("listPose"))
             moved = self.move(self.pointcloud.eval_movement_vector(self.slam_pose, self.momentum_vec), cm)
             self.scan_env(pause_sec=3, exit_clause=exit_clause)
 

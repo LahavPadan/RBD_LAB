@@ -82,6 +82,19 @@ class PointCloud(object):
         :param momentum_vec: (3D vector, normalized) indicating to which direction drone was previously heading.
         :return: (3D vector, normalized) movement vector towards locally most "vacant" location.
         """
+        def calc_movement_vector(centroid) -> np.array:
+            """
+            :param centroid: 2D point
+            :return: (3D vector, normalized) movement vector relative to momentum_vec
+            """
+            movement_vector = np.subtract(centroid, point)  # vector subtraction
+            movement_vector = np.append(movement_vector, 0)  # make it a 3D vector by adding dummy z coordinate
+            norm = np.linalg.norm(movement_vector)
+            if norm > 0:
+                movement_vector /= norm  # normalize vector
+                return movement_vector
+            else:
+                return momentum_vec
 
         def heuristic(tri) -> float:
             """
@@ -95,10 +108,10 @@ class PointCloud(object):
             area = 0.5 * np.abs(np.linalg.det(area_det_matrix))
             # evaluate how "close" this triangle is
             centroid = tri_centroid(tri)
-            centroid /= np.linalg.norm(centroid)  # normalize vector
-            cosine_of_angle = np.dot(centroid, momentum_vec[:-1])
+            movement_vector = calc_movement_vector(centroid)
+            cosine_of_angle = np.dot(movement_vector, momentum_vec)
             """Note: the scale factor (in case 1000) affects how this heuristic performs"""
-            return (0.3 * cosine_of_angle + 2) * area
+            return (cosine_of_angle + 2) * area
 
         point = point * self.scale_factor
         print("[POINTCLOUD][eval_movement_vector] evaluating movement from ", point)
@@ -120,13 +133,14 @@ class PointCloud(object):
         except ValueError:
             return momentum_vec
         except scipy.spatial.qhull.QhullError:
+
             while True:
                 self._lock_points.acquire()
                 if len(self._points) >= 5:
-                    return momentum_vec
+                    break
                 self._lock_points.release()
                 if not self._app.running:
-                    return point
+                    return momentum_vec
                 sleep(10)
             self._lock_points.release()
 
@@ -137,6 +151,7 @@ class PointCloud(object):
                 all_nns = [self._points[idx] for idx in nn_indices]
             all_nns = np.array(*all_nns)
             triangles = Delaunay(all_nns, qhull_options="QJ")
+
 
         # https://stackoverflow.com/questions/18296755/python-max-function-using-key-and-lambda-expression
         tri = max(all_nns[triangles.simplices], key=heuristic)
@@ -151,14 +166,6 @@ class PointCloud(object):
         self.plot()
         """
         print(f'before movement_vector: centroid: {centroid}, point: {point}')
-        movement_vector = np.subtract(centroid, point)  # vector subtraction
-        print("after vector subtraction: ", movement_vector)
-        movement_vector = np.append(movement_vector, 0)  # make it a 3D vector by adding dummy z coordinate
-        norm = np.linalg.norm(movement_vector)
-        if norm > 0:
-            movement_vector /= norm  # normalize vector
-            return movement_vector
-        else:
-            return momentum_vec
+        return calc_movement_vector(centroid)
 
 
