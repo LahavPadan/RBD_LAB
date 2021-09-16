@@ -1,6 +1,6 @@
 # RBD-LAB Drone Project
 - Project goal: program a drone to navigate in closed space.
-- [Video illustration](https://www.youtube.com/watch?v=c8Rfb80J3IE)
+- [Video illustration](https://youtu.be/DrXkyMg7KsM)
 
 ## Algorithm:
 ```
@@ -30,6 +30,9 @@
 - [_Color-Tracker_](https://github.com/gaborvecsei/Color-Tracker)
 ---
 ## Dependencies
+```
+git clone https://github.com/LahavPadan/ORB_SLAM2
+```
 ```
 pip install opencv-python
 pip install numpy
