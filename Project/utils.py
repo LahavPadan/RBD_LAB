@@ -318,14 +318,6 @@ def tri_centroid(tri: np.array) -> np.array:
     return np.array([(x1 + x2 + x3) / 3, (y1 + y2 + y3) / 3])
 
 
-def calc_angle_XY_plane(vec1: np.array, vec2: np.array) -> int:
-    (x1, y1), (x2, y2) = vec1[:-1], vec2[:-1]  # get vectors in 2D
-    dot = x1 * x2 + y1 * y2  # dot product
-    det = x1 * y2 - y1 * x2  # determinant
-    angle = int(atan2(det, dot) * (180 / pi))  # atan2(y, x) or atan2(sin, cos)
-    return angle
-
-
 def find_relative_3D_space(Y: np.array) -> np.array:
     rotation_mat = np.array([[0, 1],
                              [-1, 0]])
@@ -333,3 +325,13 @@ def find_relative_3D_space(Y: np.array) -> np.array:
     X = np.append(rotated_vec, 0)  # make it a 3D vector
     Z = np.array([0, 0, 1])
     return X, Y, Z
+
+def round_up(num):
+    threshold = 13
+    rounded = num
+    if num <= 20:
+        if threshold <= num <= 20:
+            rounded = 20
+        else:
+            rounded = 0
+    return rounded

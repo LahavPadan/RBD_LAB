@@ -93,7 +93,6 @@ class PointCloud(object):
             # calculate area of triangle
             area_det_matrix = np.hstack((tri, np.ones((3, 1))))
             area = 0.5 * np.abs(np.linalg.det(area_det_matrix))
-            # print(f'some tri area is {area}')
             # evaluate how "close" this triangle is
             centroid = tri_centroid(tri)
             centroid /= np.linalg.norm(centroid)  # normalize vector

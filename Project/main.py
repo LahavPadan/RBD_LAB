@@ -5,19 +5,6 @@ import numpy as np
 from tello_control import TelloCV
 import utils
 
-add_ons_installed = True
-try:
-    import getpass
-    import HandTrackingModule
-    import VolumeHandControl
-    from image_filters import init_control_gui, apply_hsv_filter, apply_edge_filter
-    from face_recognition import FaceRec
-except ImportError:
-    add_ons_installed = False
-    print("clone add_ons branch to gain access to HandTrackingModule, VolumeHandControl, "
-          "image_filters and face_recognition")
-
-
 # INPUT_FORM: VIDEO/WEB-CAM/TELLO
 INPUT_FORM = 'TELLO'
 RUN_ORB_SLAM = True
@@ -57,11 +44,6 @@ class App(utils.CppCommunication):
 
         self.init_cap()
 
-        if add_ons_installed:
-            self.face_rec = FaceRec()
-            # call your stuff here in different threads. for frames object pass:
-            # self.factory()
-            # pass arguments to thread by args=[LIST OF ARGUMENTS]
 
     def init_cap(self):
         if INPUT_FORM == 'VIDEO':
@@ -103,11 +85,6 @@ class App(utils.CppCommunication):
         output_frames = [
             frame,
         ]
-        if add_ons_installed:
-            frames = [self.face_rec.recognize(frame),
-                      apply_edge_filter(frame),
-                      apply_hsv_filter(frame)]
-            output_frames = output_frames + frames
         return frame, output_frames
 
     def run(self):

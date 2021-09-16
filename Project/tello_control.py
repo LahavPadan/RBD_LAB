@@ -4,7 +4,7 @@ from time import sleep
 import numpy as np
 from math import cos, sin, radians
 from pointcloud import PointCloud
-from utils import find_relative_3D_space
+from utils import find_relative_3D_space, round_up
 import cv2
 import color_tracker
 import queue
@@ -53,7 +53,6 @@ class TelloCV(object):
 
                     getattr(self.drone, item['action_str'])(*item['args'])
 
-                    pass
                 except AttributeError:
                     print("Invalid argument: Cannot execute passed function")
                     continue
@@ -61,12 +60,16 @@ class TelloCV(object):
                     print("Please submit to queue via submit_action method")
                     continue
             except queue.Empty:
-                print("IM HERE, QUEUE IS EMPTY")
+                print("QUEUE IS EMPTY")
                 item = None
 
                 self.drone.move(staying_in_air[i], 20)
 
                 i = (i + 1) % 2
+
+            # sometimes _queue.Empty exception from the internals of queue module is not caught
+            except Exception:
+                continue
 
             # wait for the action to be executed
             sleep(3)
@@ -155,9 +158,7 @@ class TelloCV(object):
 
             # wait for ORB_SLAM2 to initialize and scan
             if pause_sec:
-                # self.move_cv.wait(timeout=pause_sec)
                 sleep(pause_sec)
-            # normally this kind off sleeping in critical section is bad
 
         print("[TELLO][SCAN_ENV] done.")
 
@@ -172,11 +173,11 @@ class TelloCV(object):
 
         X_movement = np.dot(vector, self.X) * self.X
         # redundant, the norm is the abs(dot)
-        X_norm = round(np.linalg.norm(X_movement), -1)  # round to closest multiple of 10 (can't move less than 10 cm)
+        X_norm = round_up(np.linalg.norm(X_movement))  # round above 20 if close enough (can't move less than 20 cm)
         Y_movement = np.dot(vector, self.Y) * self.Y
-        Y_norm = round(np.linalg.norm(Y_movement), -1)
+        Y_norm = round_up(np.linalg.norm(Y_movement))
         Z_movement = np.dot(vector, self.Z) * self.Z
-        Z_norm = round(np.linalg.norm(Z_movement), -1)
+        Z_norm = round_up(np.linalg.norm(Z_movement))
 
         X_movement = 'right' if X_movement[0]/self.X[0] > 0 else 'left'
         Y_movement = 'forward' if Y_movement[1]/self.Y[1] > 0 else 'back'
@@ -189,10 +190,8 @@ class TelloCV(object):
             # https://stackoverflow.com/questions/9437726/how-to-get-the-value-of-a-variable-given-its-name-in-a-string
             movement = locals()[axis + "movement"]
             norm = locals()[axis + "norm"]
+            print(f'axis: {axis}, norm: {norm}')
             if norm > 0:
-                if norm == 10:
-                    norm = norm + 1  # 10 is threshold, need to get above that
-
                 self._authorization_request(movement, int(norm))
                 if not self.app.running:
                     break
@@ -225,15 +224,6 @@ class TelloCV(object):
     """
 
     def move_to_obj(self):
-
-        tracker = color_tracker.ColorTracker(max_nb_of_objects=1, max_nb_of_points=20, debug=True)
-        tracker.set_tracking_callback(self.tracker_callback)
-        # Define your custom Lower and Upper HSV values
-        # [148, 192, 0], [255, 255, 147]: more like the color of sweatshirt
-        tracking_thread = Thread(target=tracker.track, args=[self.app.factory(), [155, 103, 82], [178, 255, 255]],
-                                 kwargs={'min_contour_area': 2000, 'max_track_point_distance': 1000})
-        tracking_thread.start()
-
         def get_tracked_object():
             obj = None
 
@@ -250,9 +240,6 @@ class TelloCV(object):
                 except (AttributeError, TypeError, IndexError):
                     pass
                 return False
-
-            # wait for tracking to start
-            sleep(30)
             self.wander_around(exit_clause=is_object_found)
             if not self.app.running:
                 print("Returning that dummy object found dict")
@@ -260,6 +247,17 @@ class TelloCV(object):
                 obj = {'area': 0, 'center': (FRAME_SIZE[0] / 2, FRAME_SIZE[1] / 2)}
 
             return obj
+
+        tracker = color_tracker.ColorTracker(max_nb_of_objects=1, max_nb_of_points=20, debug=True)
+        tracker.set_tracking_callback(self.tracker_callback)
+        # Define your custom Lower and Upper HSV values
+        # [148, 192, 0], [255, 255, 147]: more like the color of sweatshirt
+        tracking_thread = Thread(target=tracker.track, args=[self.app.factory(), [155, 103, 82], [178, 255, 255]],
+                                 kwargs={'min_contour_area': 1000, 'max_track_point_distance': 1000})
+        tracking_thread.start()
+
+        # wait for tracking to start
+        sleep(40)
 
         res = get_tracked_object()
         print(f"[TELLO][TRACKER] OBJECT FOUND; center:{res['center']}, area:{res['area']}."
