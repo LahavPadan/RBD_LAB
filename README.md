@@ -17,7 +17,7 @@
 
       1.1.4. Scan environment for your object.
       
-2. Once found, approach that object until its close enough.
+2. Once found, approach that object until it's close enough.
 ```
 ---
 ## Group Members
