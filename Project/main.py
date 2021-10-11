@@ -2,20 +2,27 @@ import os
 import time
 import cv2
 import numpy as np
-from tello_control import TelloCV
-import utils
+from Project.tello_control import TelloCV
+import Project.utils as utils
 
 # INPUT_FORM: VIDEO/WEB-CAM/TELLO
-INPUT_FORM = 'TELLO'
-RUN_ORB_SLAM = True
+INPUT_FORM = 'WEB-CAM'
+RUN_ORB_SLAM = False
 OUTPUT_FORM = 'WINDOW'
 
 
 class App(utils.CppCommunication):
+    """
+    attributes:
+            supported by subclassing CppCommunication:
+                controls:dict - keys with specified function callback when they are pressed
+                commands_to_cpp:dict - commands supported by the cpp code
+                queries_from_cpp:list - data which can be fetched from stdout of cpp code
+        factory:function_pointer - invoking factory returns an iterator of frames
+    """
     def __init__(self):
         self.controls = {
-            's': lambda: self._tello.ack_accepted.set(),
-            't': lambda: self._tello.submit_action(action_str="takeoff", args=None, blocking=False)
+            's': lambda: self._tello.ack_accepted.set()
         }
         self.commands_to_cpp = {
             "END": 1,
@@ -40,12 +47,17 @@ class App(utils.CppCommunication):
         self.factory = utils.generators_factory(self.__framesGenerator(), size=10)
 
         if INPUT_FORM == 'TELLO':
+            """instance a TelloCV object"""
             self._tello = TelloCV(self)
-
-        self.init_cap()
+        else:
+            """instance the capture suiting to INPUT_FORM"""
+            self.init_cap()
 
 
     def init_cap(self):
+        """
+        initialize self._cap
+        """
         if INPUT_FORM == 'VIDEO':
             if self._input_video_path is None:
                 print("ERROR: in input_video_path")
@@ -57,6 +69,9 @@ class App(utils.CppCommunication):
             self._cap.open(0)
 
     def __framesGenerator(self):
+        """
+        to be used internally by self.factory to fetch the next frame
+        """
         if INPUT_FORM == 'TELLO':
             frame_obj = self._tello.drone.get_frame_read()
             frame = frame_obj.frame
@@ -81,7 +96,12 @@ class App(utils.CppCommunication):
                 else:
                     break
 
-    def processFrame(self, frame):
+    @staticmethod
+    def processFrame(frame):
+        """
+        output from additional processing can be added
+        all output_frames are displayed (simultaneously) if RUN_ORB_SLAM is False
+        """
         output_frames = [
             frame,
         ]
@@ -115,6 +135,10 @@ class App(utils.CppCommunication):
                         break
 
     def end(self):
+        """
+        end method overridden in CppCommunication. Releases resources.
+        Invoked upon handling ESC key stroke callback
+        """
         self.running = False
 
         if self.subproc_path is not None:

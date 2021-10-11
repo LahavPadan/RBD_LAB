@@ -3,8 +3,8 @@ from threading import Thread, Event
 from time import sleep
 import numpy as np
 from math import cos, sin, radians
-from pointcloud import PointCloud
-from utils import find_relative_3D_space, round_up
+from Project.pointcloud import PointCloud
+from Project.utils import find_relative_3D_space, round_up
 import cv2
 import color_tracker
 from queue import Queue, Empty
@@ -13,8 +13,19 @@ FRAME_SIZE = (640, 480)
 
 
 class TelloCV(object):
-
+    """
+     attributes:
+            speed: movement speed of drone, both rotating and moving. Set internally once _init_drone is called.
+            q: queue of actions specified by djitellopy's API
+            momentum_vec: direction vector of drone
+            X, Y, Z: floats - relative X,Y,Z coordinates. that is, Y axis is always set to the direction vector of drone
+            slam_pose: np.array - 3D coordinate of drone in ORB_SLAM2's coordinate space
+            ack_accepted: threading.Event Object - signify acknowledgement from user after drone sends an authorization request
+    """
     def __init__(self, app):
+        """
+        @param app: reference to main app object. to access CppCommunication's API
+        """
         self.app = app
         self.drone = djitellopy.Tello()
         self.speed = 10  # 10 cm/sec
@@ -28,20 +39,34 @@ class TelloCV(object):
         self.slam_pose: np.array = np.array([])
         self.pointcloud = None
 
-        self.ack_accepted = Event()  # signify acknowledgement from user after drone sends an authorization request
+        self.ack_accepted = Event()
 
         self.move_to_obj_thread = None
 
         # IM CREATING TON OF THREADS AND JOINING NONE
         Thread(target=self._init_drone).start()
 
-    def submit_action(self, action_str, args, blocking=False):
+    def submit_action(self, action_str, args: list, blocking=False):
+        """
+        @summary: submit djitellopy actions to queue for execution
+
+        @param action_str: djitellopy action specified by djitellopy's API
+        @param args: arguments for action
+        @param blocking: whether it is asynchronous/synchronous request.
+        If synchronous, caller will be stalled util action is handled
+        @return: None
+        """
         done_indicator = Event()
         self.q.put( {'action_str': action_str, 'args': args, 'done_indicator': done_indicator} )
         if blocking:
             done_indicator.wait()
 
     def worker(self):
+        """
+        @summary: responsiable for executing actions from queue as well as keeping the drone "busy"
+        so it will stay in air and not auto-land
+        @return: None
+        """
         i = 0
         staying_in_air = ['up', 'down']
         print("worker in loop")
@@ -72,7 +97,11 @@ class TelloCV(object):
                 item['done_indicator'].set()
 
     def _init_drone(self):
-
+        """
+        @summary: connect to drone, takeoff, start searching for obj in move_to_obj_thread.
+        initialize ORB_SLAM2, and a pointcloud object
+        @return: None
+        """
         self.drone.connect()
         self.drone.streamon()
         print("Battery percentage: ", self.drone.get_battery())
@@ -89,9 +118,6 @@ class TelloCV(object):
         print("[TELLO][INIT_DRONE] ORB_SLAM2 initialized.")
         
         # from this point onwards, ORB_SLAM2 is initialized (but can lose localization)
-        """
-        Thread(target=self.wall_avoidance).start()
-        """
         self.slam_pose = np.array(self.app.request_from_cpp("listPose"))
         self.pointcloud = PointCloud(self.app)
 
@@ -100,13 +126,6 @@ class TelloCV(object):
 
         # complete 360 degrees without exit clause
         self.scan_env(blocking=False)
-
-    def wall_avoidance(self):
-        print("Starting wall avoidance")
-        while self.app.running:
-            if self.app.request_from_cpp("isWall"):
-                print("[TELLO][wall_avoidance] attempting to turn away from wall...")
-                self.scan_env(exit_clause=lambda: not self.app.request_from_cpp("isWall"), blocking=True)
 
 
     def end(self):
@@ -123,6 +142,12 @@ class TelloCV(object):
         self.drone.end()
 
     def _authorization_request(self, direction, cm):
+        """
+        @summary: block until user authorizes movement by a key stroke
+        @param direction: movement direction
+        @param cm: movement magnitude in cm
+        @return: None
+        """
         if self.app.running:
             # clear previous/accidental authorization bit
             self.ack_accepted.clear()
@@ -133,6 +158,11 @@ class TelloCV(object):
                 break
 
     def __update_movement_vector(self, diff_angle):
+        """
+        used internally by scan_env to keep drone's positional attributes intact
+        @param diff_angle: how the angle has changed from previous angle
+        @return: None
+        """
         # self._angle is only used inside cosine and sine, thus, no problem that self._angle will become
         # arbitrarily large
         self._angle = self._angle + diff_angle
@@ -141,6 +171,13 @@ class TelloCV(object):
         self.X, self.Y, self.Z = find_relative_3D_space(self.momentum_vec)
 
     def scan_env(self, pause_sec=0, exit_clause=(lambda: False), blocking=True):
+        """
+        @summary: rotate 360 degress unless exit_clause is met at some point
+        @param pause_sec: time to wait between individual rotation steps in scan
+        @param exit_clause: the scan will be stopped mid way through if exit clause is met
+        @param blocking: whether it is asynchronous/synchronous request.
+        If synchronous, caller will be stalled util action is handled
+        """
         print("[TELLO][SCAN_ENV] scanning environment...")
         degree_per_iteration = 40
         for _ in range(0, 360, degree_per_iteration):

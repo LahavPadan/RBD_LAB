@@ -7,11 +7,14 @@ import scipy
 from sklearn.neighbors import KDTree
 from scipy.spatial import Delaunay
 from threading import Timer, Lock
-from utils import tri_centroid
+from Project.utils import tri_centroid
 
 
 class PointCloud(object):
     def __init__(self, app):
+        """
+        @param app: reference to main app object. to access CppCommunication's API
+        """
         self._app = app
         self._kdTree = None
         self._points: np.array = np.array([])
